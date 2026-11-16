@@ -10,7 +10,7 @@ Una scrivania infinita dove compaiono da sole tutte le note con cose da fare, e 
 
 1. **Canvas nativo, nessuna vista custom.** La scrivania è un normale file `.canvas` (formato aperto JSON Canvas). Pan, zoom, touch, gruppi, frecce, colori: tutto già fatto da Obsidian, anche su mobile. Se disinstalli il plugin, la scrivania resta.
 2. **Le card sono le note, non copie.** Ogni card è un nodo `file` che incorpora la nota. Spuntare un task sulla card modifica la nota vera. Niente sincronizzazione bidirezionale, niente stati duplicati.
-3. **La posizione è dell'utente.** Il plugin aggiunge card nuove (nell'Inbox) e segnala quelle completate. Non sposta, non ridimensiona e non cancella mai ciò che hai sistemato tu.
+3. **La posizione è dell'utente.** Il plugin piazza solo le card nuove (Inbox) e, se richiesto, archivia quelle completate (zona Done). Le zone possono allargarsi per contenere le card, mai restringersi o spostarsi.
 4. **Il plugin possiede solo ciò che crea.** I nodi creati dal plugin hanno id con prefisso `st-`. Tutto il resto del canvas è intoccabile.
 5. **Solo metadata cache.** La scansione legge l'indice che Obsidian ha già in memoria, senza aprire file: veloce anche su telefono e su vault grandi.
 6. **Lo spazio diventa dato (opzionale).** Il gruppo in cui sta una card può essere scritto nella nota (`desk-zone: Oggi`), così la disposizione è interrogabile da Bases, Dataview, ricerca.
@@ -39,14 +39,15 @@ Scrittura del canvas: se la scrivania è aperta si passa dalla vista (`canvas.ge
 
 ## Roadmap
 
-Ordine indicativo; ogni voce va validata usando la v0.1 per qualche giorno.
+Ordine indicativo; ogni voce va validata con l'uso reale.
 
 - **v0.1 (fatto)**: scrivania, Inbox, completate in verde, zone → proprietà, filtri.
 - **Integrazione Tasks (fatto)**: se il plugin Tasks è installato si usa il suo indice (filtro globale, stati personalizzati, date); colore per scadenza; comando "Add task" con l'editor di Tasks.
-- **v0.2 Disposizione iniziale**: al primo riempimento, raggruppare per cartella o tag invece di un'unica Inbox. Comando "riordina Inbox".
-- **v0.3 Card per sezione**: nodo `file` con `subpath` (`#Titolo`) per mostrare solo la sezione con i task, card più compatte.
-- **v0.4 Zone attive**: la zona scrive anche altre proprietà (es. gruppo "Oggi" → `due: <oggi>`), e viceversa una proprietà cambiata altrove sposta la card.
-- **v0.5 Card per singolo task**: nodi testo con link al task d'origine. Richiede sync bidirezionale: farlo solo se la card-nota si rivela troppo grossolana.
+- **v0.2 (fatto)**: zona Done, zone che si allargano, colore ereditato dalla zona.
+- **Disposizione iniziale**: al primo riempimento, raggruppare per cartella o tag invece di un'unica Inbox. Comando "riordina Inbox".
+- **Card per sezione**: nodo `file` con `subpath` (`#Titolo`) per mostrare solo la sezione con i task, card più compatte.
+- **Zone attive**: la zona scrive anche altre proprietà (es. gruppo "Oggi" → `due: <oggi>`), e viceversa una proprietà cambiata altrove sposta la card.
+- **Card per singolo task**: nodi testo con link al task d'origine. Richiede sync bidirezionale: farlo solo se la card-nota si rivela troppo grossolana.
 - **Più scrivanie**: una per progetto/area, ciascuna con il suo filtro.
 - **Priorità di Tasks** sulla card (oggi si usano solo scadenza e data pianificata).
 

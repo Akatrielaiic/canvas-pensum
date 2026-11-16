@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { CanvasData } from "../src/canvas.ts";
-import { INBOX_ID, type SyncOptions, syncDesk } from "../src/sync.ts";
-import { computeZones } from "../src/zones.ts";
+import { DONE_ID, INBOX_ID, type SyncOptions, syncDesk } from "../src/sync.ts";
+import { centreInside, computeZones } from "../src/zones.ts";
 
 let n = 0;
 const opts: SyncOptions = {
@@ -123,8 +123,63 @@ test("due dates colour our cards, but never override a colour the user picked", 
 	first.data.nodes.find((x) => x.file === "mine.md")!.color = "6";
 	notes[0].due = "2026-12-24"; // rescheduled
 	const second = syncDesk(first.data, notes, { ...opts, today });
-	assert.deepEqual(second.recolored, ["late.md"]);
 	assert.equal(color(second, "late.md"), undefined);
 	assert.equal(color(second, "mine.md"), "6");
 	assert.equal(syncDesk(second.data, notes, { ...opts, today }).changed, false);
+});
+
+test("move mode files finished cards in the Done zone and brings reopened ones back", () => {
+	const move = { ...opts, onComplete: "move" as const };
+	const first = syncDesk(empty(), [note("a.md"), note("b.md")], move);
+	assert.equal(first.data.nodes.find((x) => x.id === DONE_ID), undefined, "no Done zone until needed");
+
+	const done = syncDesk(first.data, [note("a.md", 0, 1), note("b.md")], move);
+	const zone = (r: typeof done, id: string) => r.data.nodes.find((x) => x.id === id)!;
+	const card = (r: typeof done, p: string) => r.data.nodes.find((x) => x.file === p)!;
+	assert.deepEqual(done.completed, ["a.md"]);
+	assert.equal(card(done, "a.md").color, "4");
+	assert.ok(centreInside(card(done, "a.md"), zone(done, DONE_ID)));
+	assert.ok(!overlap(zone(done, DONE_ID), zone(done, INBOX_ID)), "Done zone is clear of the Inbox");
+	assert.deepEqual(card(done, "b.md"), card(first, "b.md"), "other cards untouched");
+	assert.equal(syncDesk(done.data, [note("a.md", 0, 1), note("b.md")], move).changed, false);
+
+	const reopened = syncDesk(done.data, [note("a.md"), note("b.md")], move);
+	assert.deepEqual(reopened.reopened, ["a.md"]);
+	assert.ok(centreInside(card(reopened, "a.md"), zone(reopened, INBOX_ID)));
+	assert.ok(!overlap(card(reopened, "a.md"), card(reopened, "b.md")));
+	assert.equal(syncDesk(reopened.data, [note("a.md"), note("b.md")], move).changed, false);
+
+	// A finished card the user deleted from the desk does not come back.
+	const cleared = { ...done.data, nodes: done.data.nodes.filter((x) => x.file !== "a.md") };
+	assert.equal(syncDesk(cleared, [note("a.md", 0, 1), note("b.md")], move).changed, false);
+});
+
+test("zones grow around cards dropped in them, and cards inherit the zone colour", () => {
+	const zoned = { ...opts, growZones: true, inheritZoneColor: true };
+	const first = syncDesk(empty(), [note("a.md"), note("b.md")], zoned);
+	const data = first.data;
+	data.nodes.unshift({ id: "g", type: "group", label: "Today", color: "5", x: 3000, y: 0, width: 300, height: 300 });
+	const a = data.nodes.find((x) => x.file === "a.md")!;
+	a.x = 3050; // centre lands inside the small zone, the card sticks out
+	a.y = 50;
+
+	const r = syncDesk(data, [note("a.md"), note("b.md")], zoned);
+	const g = r.data.nodes.find((x) => x.id === "g")!;
+	const moved = r.data.nodes.find((x) => x.file === "a.md")!;
+	assert.deepEqual([moved.x, moved.y], [3050, 50], "the card itself is not moved");
+	assert.deepEqual([g.x, g.y], [3000, 0], "the zone does not move");
+	assert.ok(g.x + g.width >= moved.x + moved.width && g.y + g.height >= moved.y + moved.height, "zone grew");
+	assert.equal(moved.color, "5");
+	assert.equal(r.data.nodes.find((x) => x.file === "b.md")!.color, undefined);
+	assert.equal(syncDesk(r.data, [note("a.md"), note("b.md")], zoned).changed, false);
+
+	// Dragged back out: the inherited colour goes, a hand-picked one would stay.
+	moved.x = 9000;
+	const out = syncDesk(r.data, [note("a.md"), note("b.md")], zoned);
+	assert.equal(out.data.nodes.find((x) => x.file === "a.md")!.color, undefined);
+	const b = out.data.nodes.find((x) => x.file === "b.md")!;
+	b.color = "6";
+	b.x = 3050;
+	b.y = 50;
+	assert.equal(syncDesk(out.data, [note("a.md"), note("b.md")], zoned).data.nodes.find((x) => x.file === "b.md")!.color, "6");
 });

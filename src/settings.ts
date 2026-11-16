@@ -7,7 +7,9 @@ export interface SpatialTasksSettings {
 	excludeFolders: string;
 	requiredTag: string;
 	autoSync: boolean;
-	onComplete: "mark" | "remove";
+	onComplete: "mark" | "move" | "remove";
+	growZones: boolean;
+	inheritZoneColor: boolean;
 	colorByDue: boolean;
 	captureNote: string;
 	writeZones: boolean;
@@ -22,7 +24,9 @@ export const DEFAULT_SETTINGS: SpatialTasksSettings = {
 	excludeFolders: "",
 	requiredTag: "",
 	autoSync: true,
-	onComplete: "mark",
+	onComplete: "move",
+	growZones: true,
+	inheritZoneColor: true,
 	colorByDue: true,
 	captureNote: "Inbox.md",
 	writeZones: false,
@@ -90,7 +94,8 @@ export class SpatialTasksSettingTab extends PluginSettingTab {
 			.setName("When a note has no open tasks left")
 			.addDropdown((d) =>
 				d
-					.addOption("mark", "Turn its card green")
+					.addOption("move", "Turn its card green and move it to the Done zone")
+					.addOption("mark", "Turn its card green, leave it where it is")
 					.addOption("remove", "Remove its card")
 					.setValue(s.onComplete)
 					.onChange(async (v) => {
@@ -128,7 +133,30 @@ export class SpatialTasksSettingTab extends PluginSettingTab {
 				}),
 			);
 
-		new Setting(containerEl).setName("Zones").setHeading();
+		new Setting(containerEl)
+			.setName("Zones")
+			.setHeading()
+			.setDesc("A zone is any group you draw on the desk.");
+
+		new Setting(containerEl)
+			.setName("Grow zones to fit")
+			.setDesc("When you drop a card in a zone, the zone grows to contain it. Zones never shrink or move.")
+			.addToggle((t) =>
+				t.setValue(s.growZones).onChange(async (v) => {
+					s.growZones = v;
+					await save();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Cards take the zone's colour")
+			.setDesc("Give a zone a colour and the cards inside follow it. Done and due-date colours win; a colour you set on a card by hand is kept.")
+			.addToggle((t) =>
+				t.setValue(s.inheritZoneColor).onChange(async (v) => {
+					s.inheritZoneColor = v;
+					await save();
+				}),
+			);
 
 		new Setting(containerEl)
 			.setName("Write zone to note property")

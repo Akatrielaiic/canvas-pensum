@@ -11,8 +11,8 @@ Every note that has open tasks (`- [ ]`) lands as a card on one infinite canvas,
 - **Open task desk** (ribbon icon or command) creates `Task Desk.canvas` and fills it.
 - New notes with open tasks appear in the **Inbox** group. Drag them wherever you like.
 - Cards are the notes themselves: tick a checkbox on the card and the note is updated. Nothing is copied.
-- When a note has no open tasks left, its card turns green (or is removed, your choice).
-- The plugin never moves, resizes or deletes anything you placed yourself.
+- When a note has no open tasks left, its card turns green and moves to the **Done** zone (or stays put, or is removed: your choice). Delete cards from Done whenever you like; the notes are untouched, and a note only comes back if it gets a new open task.
+- Apart from that, the plugin never moves or deletes a card you placed, and never touches cards you added by hand.
 
 ### With the Tasks plugin
 
@@ -24,9 +24,14 @@ If the [Tasks](https://github.com/obsidian-tasks-group/obsidian-tasks) plugin is
 
 Without Tasks, the desk works on plain checkboxes and **Add task** is a one-line prompt.
 
-### Zones (optional)
+### Zones
 
-Draw groups on the desk and name them (`Today`, `This week`, `Waiting`…). With *Write zone to note property* enabled, the label of the group a card sits in is written to the note as `desk-zone: Today`, so your layout can be queried from Bases, Dataview or search.
+Draw groups on the desk and name them (`Today`, `This week`, `Waiting`…).
+
+- Drop a card in a zone and the zone grows to contain it. Zones never shrink or move.
+- Give a zone a colour and its cards take it. Done (green) and due-date colours win over the zone's; a colour you set on a card by hand is kept, unless it matches a zone colour.
+
+With *Write zone to note property* enabled, the label of the group a card sits in is written to the note as `desk-zone: Today`, so your layout can be queried from Bases, Dataview or search.
 
 ### Leaving notes out
 

@@ -26,7 +26,8 @@ export default class SpatialTasksPlugin extends Plugin {
 		this.addCommand({ id: "add-task", name: "Add task", callback: () => this.addTask() });
 
 		const autoSync = debounce(() => this.settings.autoSync && this.sync(false), 2000, true);
-		const autoZones = debounce(() => this.settings.writeZones && this.writeZonesFromFile(), 1500, true);
+		// The desk itself changed (a card was dragged, a zone recoloured): re-apply zone rules.
+		const deskChanged = debounce(() => this.sync(false), 1000, true);
 
 		// Wait for the layout: before that, the cache fires "changed" for every file in the vault.
 		this.app.workspace.onLayoutReady(() => {
@@ -40,7 +41,7 @@ export default class SpatialTasksPlugin extends Plugin {
 			this.registerInterval(window.setInterval(autoSync, 60 * 60 * 1000));
 			this.registerEvent(
 				this.app.vault.on("modify", (file) => {
-					if (file.path === this.deskPath()) autoZones();
+					if (file.path === this.deskPath()) deskChanged();
 				}),
 			);
 		});
@@ -103,6 +104,9 @@ export default class SpatialTasksPlugin extends Plugin {
 				columns: this.settings.columns,
 				gap: 40,
 				inboxLabel: "Inbox",
+				doneLabel: "Done",
+				growZones: this.settings.growZones,
+				inheritZoneColor: this.settings.inheritZoneColor,
 				onComplete: this.settings.onComplete,
 				doneColor: "4",
 				today: this.settings.colorByDue && getTasksPlugin(this.app) ? moment().format("YYYY-MM-DD") : undefined,
@@ -158,11 +162,6 @@ export default class SpatialTasksPlugin extends Plugin {
 			console.error("Spatial Tasks", e);
 			new Notice("Spatial Tasks: could not add the task (see console).");
 		}
-	}
-
-	private async writeZonesFromFile() {
-		const desk = await this.getDesk(false);
-		if (desk) await this.writeZones(parseCanvas(await this.app.vault.read(desk)));
 	}
 
 	/** Mirrors "which group is this card in" into a note property. Only writes when the value changes. */
