@@ -17,10 +17,25 @@ export function insertAtTop(content: string, line: string): string {
 	return head + line + "\n" + body;
 }
 
-/** Adds a link (the day's note, say) right after the checkbox: `- [ ] [[2026-11-16]] text`. */
-export function withLink(line: string, link: string): string {
-	const checkbox = line.match(/^\s*[-*+] \[.\] /)?.[0];
-	return checkbox ? checkbox + link + " " + line.slice(checkbox.length) : link + " " + line;
+/**
+ * Puts `line` at the top of a note under a heading for the day:
+ *
+ *     ### [[2026-11-16]]
+ *     - [ ] the task
+ *
+ * If the note already opens with that heading, the task joins it (first in its list) instead
+ * of repeating the heading.
+ */
+export function insertUnderHeading(content: string, heading: string, line: string): string {
+	const marker = "\u0000";
+	const placed = insertAtTop(content, marker);
+	const at = placed.indexOf(marker);
+	const head = placed.slice(0, at);
+	const body = placed.slice(at + marker.length + 1);
+	const first = body.match(/^[^\n]*/)?.[0] ?? "";
+	if (first.trim() === heading.trim()) return head + first + "\n" + line + "\n" + body.slice(first.length).replace(/^\r?\n/, "");
+	const gap = body && !/^\s*\n/.test(body) ? "\n" : "";
+	return head + heading + "\n" + line + "\n" + gap + body;
 }
 
 /** A note name typed by hand, made safe as a path: `Clients/Acme` stays a folder and a file. */

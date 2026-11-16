@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { insertAtTop, notePath, withLink } from "../src/capture.ts";
+import { insertAtTop, insertUnderHeading, notePath } from "../src/capture.ts";
 
 const task = "- [ ] call back";
 
@@ -25,10 +25,24 @@ test("insertAtTop: goes below the properties and the title", () => {
 	assert.equal(insertAtTop("Intro\n---\nmore\n", task), "- [ ] call back\nIntro\n---\nmore\n");
 });
 
-test("withLink puts the link right after the checkbox, before any Tasks fields", () => {
-	assert.equal(withLink("- [ ] call back 📅 2026-11-20", "[[2026-11-16]]"), "- [ ] [[2026-11-16]] call back 📅 2026-11-20");
-	assert.equal(withLink("* [/] half", "[[d]]"), "* [/] [[d]] half");
-	assert.equal(withLink("plain", "[[d]]"), "[[d]] plain");
+test("insertUnderHeading: day heading, then the task, at the top", () => {
+	const day = "### [[2026-11-16]]";
+	assert.equal(insertUnderHeading("", day, task), "### [[2026-11-16]]\n- [ ] call back\n");
+	assert.equal(
+		insertUnderHeading("### [[2026-11-10]]\n- [ ] old\n", day, task),
+		"### [[2026-11-16]]\n- [ ] call back\n\n### [[2026-11-10]]\n- [ ] old\n",
+	);
+	assert.equal(
+		insertUnderHeading("---\na: 1\n---\n# Acme\n\nNotes\n", day, task),
+		"---\na: 1\n---\n# Acme\n\n### [[2026-11-16]]\n- [ ] call back\n\nNotes\n",
+	);
+});
+
+test("insertUnderHeading: a second task on the same day joins the heading, newest first", () => {
+	const day = "### [[2026-11-16]]";
+	const once = insertUnderHeading("# Acme\n\n### [[2026-11-10]]\n- [ ] old\n", day, "- [ ] first");
+	const twice = insertUnderHeading(once, day, "- [ ] second");
+	assert.equal(twice, "# Acme\n\n### [[2026-11-16]]\n- [ ] second\n- [ ] first\n\n### [[2026-11-10]]\n- [ ] old\n");
 });
 
 test("notePath cleans a typed name and honours folders", () => {

@@ -119,8 +119,8 @@ export class CanvasPensumSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Link new tasks to the day")
-			.setDesc("“Add task to a note” starts the task with a link to today, like [[2026-11-16]], so it shows up in that day's note.")
+			.setName("Put new tasks under the day")
+			.setDesc("“Add task to a note” writes a heading that links to today, like ### [[2026-11-16]], with the task below it. Off: just the task.")
 			.addToggle((t) =>
 				t.setValue(s.captureDate).onChange(async (v) => {
 					s.captureDate = v;

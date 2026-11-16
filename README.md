@@ -16,7 +16,14 @@ Every note that has open tasks (`- [ ]`) lands as a card on one infinite canvas,
 
 ### Adding tasks
 
-- **Add task to a note** (**Cmd/Ctrl+Shift+A**, or the button among the canvas controls on the right of the Pensatorium) asks which note, with search. Type a name that doesn't exist and press Enter to create the note. With one card selected, its note is the first suggestion. The task goes at the top of the note, below the properties and the title, and starts with a link to today (`- [ ] [[2026-11-16]] Call back`); the link and its format can be changed or turned off in the settings.
+- **Add task to a note** (**Cmd/Ctrl+Shift+A**, or the button among the canvas controls on the right of the Pensatorium) asks which note, with search. Type a name that doesn't exist and press Enter to create the note. With one card selected, its note is the first suggestion. You type the task in a one-line box and press Enter. It goes at the top of the note, below the properties and the title, under a heading that links to the day:
+
+  ```markdown
+  ### [[2026-11-16]]
+  - [ ] Call back
+  ```
+
+  A second task on the same day joins that heading. The heading and its date format can be changed or turned off in the settings.
 - **Add task** writes to one fixed capture note (`Inbox.md` by default), for things to sort later.
 - Or write `- [ ]` straight in a card: cards are the notes themselves.
 

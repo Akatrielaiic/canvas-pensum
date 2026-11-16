@@ -19,7 +19,7 @@ import {
 	setTooltip,
 } from "obsidian";
 import { type CanvasData, type CanvasNode, parseCanvas, serializeCanvas } from "./canvas.ts";
-import { insertAtTop, notePath, withLink } from "./capture.ts";
+import { insertAtTop, insertUnderHeading, notePath } from "./capture.ts";
 import { scanVault } from "./scanner.ts";
 import { DEFAULT_SETTINGS, type CanvasPensumSettings, CanvasPensumSettingTab } from "./settings.ts";
 import { DONE_ID, INBOX_ID, type Layout, type SyncResult, addZone, moveToZone, syncDesk } from "./sync.ts";
@@ -386,11 +386,13 @@ export default class CanvasPensumPlugin extends Plugin {
 	private addTaskToNote() {
 		new NotePicker(this.app, this.selectedNote(), async (pick) => {
 			try {
-				let line = await this.taskLine();
-				if (!line?.trim()) return;
-				if (this.settings.captureDate) {
-					line = withLink(line, `[[${moment().format(this.settings.captureDateFormat || "YYYY-MM-DD")}]]`);
-				}
+				// A plain one-line box, not the Tasks editor: type, Enter, done. Tasks syntax typed here is kept.
+				const line = await promptTaskLine(this.app, `Task for ${typeof pick === "string" ? pick : pick.basename}`);
+				if (!line) return;
+				const heading = this.settings.captureDate
+					? `### [[${moment().format(this.settings.captureDateFormat || "YYYY-MM-DD")}]]`
+					: null;
+				const place = (text: string) => (heading ? insertUnderHeading(text, heading, line) : insertAtTop(text, line));
 				let file: TFile;
 				if (typeof pick === "string") {
 					const path = normalizePath(notePath(pick, this.app.fileManager.getNewFileParent("").path));
@@ -398,15 +400,15 @@ export default class CanvasPensumPlugin extends Plugin {
 					const existing = this.app.vault.getAbstractFileByPath(path);
 					if (existing instanceof TFile) {
 						file = existing;
-						await this.app.vault.process(file, (text) => insertAtTop(text, line));
+						await this.app.vault.process(file, place);
 					} else {
 						const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
 						if (folder && !this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
-						file = await this.app.vault.create(path, line + "\n");
+						file = await this.app.vault.create(path, place(""));
 					}
 				} else {
 					file = pick;
-					await this.app.vault.process(file, (text) => insertAtTop(text, line));
+					await this.app.vault.process(file, place);
 				}
 				new Notice(`Task added to ${file.basename}`);
 			} catch (e) {
@@ -454,7 +456,7 @@ export default class CanvasPensumPlugin extends Plugin {
 	}
 }
 
-function promptTaskLine(app: App): Promise<string> {
+function promptTaskLine(app: App, title = "Add task"): Promise<string> {
 	return new Promise((resolve) => {
 		const modal = new Modal(app);
 		let text = "";
@@ -463,8 +465,10 @@ function promptTaskLine(app: App): Promise<string> {
 			submitted = true;
 			modal.close();
 		};
-		modal.titleEl.setText("Add task");
+		modal.titleEl.setText(title);
 		new Setting(modal.contentEl).setName("Task").addText((t) => {
+			t.inputEl.addClass("pensum-task-input");
+			t.inputEl.style.width = "100%";
 			t.onChange((v) => (text = v));
 			t.inputEl.addEventListener("keydown", (e) => {
 				if (e.key === "Enter" && !e.isComposing) submit();
