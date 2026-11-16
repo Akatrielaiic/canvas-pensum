@@ -81,21 +81,32 @@ const clone = (data: CanvasData): CanvasData => {
 
 /** Puts `node` in the first free grid slot of `group`, growing the group if needed. */
 export function placeIn(data: CanvasData, node: CanvasNode, group: CanvasNode, layout: Layout): void {
-	const obstacles = data.nodes.filter((n) => n.type !== "group" && n !== node);
+	placeBlock(data, [node], group, layout);
+}
+
+/** Like placeIn, for several cards moved as one rigid block, so their arrangement is kept. */
+function placeBlock(data: CanvasData, block: CanvasNode[], group: CanvasNode, layout: Layout): void {
+	const inBlock = new Set(block);
+	const obstacles = data.nodes.filter((n) => n.type !== "group" && !inBlock.has(n));
+	const left = Math.min(...block.map((n) => n.x));
+	const top = Math.min(...block.map((n) => n.y));
+	const box: Rect = {
+		x: 0,
+		y: 0,
+		width: Math.max(...block.map((n) => n.x + n.width)) - left,
+		height: Math.max(...block.map((n) => n.y + n.height)) - top,
+	};
 	for (let slot = 0; ; slot++) {
-		const rect: Rect = {
-			x: group.x + layout.gap + (slot % layout.columns) * (layout.cardWidth + layout.gap),
-			y: group.y + layout.gap + Math.floor(slot / layout.columns) * (layout.cardHeight + layout.gap),
-			width: node.width,
-			height: node.height,
-		};
-		if (obstacles.some((o) => intersects(o, rect))) continue;
-		node.x = rect.x;
-		node.y = rect.y;
-		break;
+		box.x = group.x + layout.gap + (slot % layout.columns) * (layout.cardWidth + layout.gap);
+		box.y = group.y + layout.gap + Math.floor(slot / layout.columns) * (layout.cardHeight + layout.gap);
+		if (!obstacles.some((o) => intersects(o, box))) break;
 	}
-	group.width = Math.max(group.width, node.x + node.width + layout.gap - group.x);
-	group.height = Math.max(group.height, node.y + node.height + layout.gap - group.y);
+	for (const n of block) {
+		n.x += box.x - left;
+		n.y += box.y - top;
+	}
+	group.width = Math.max(group.width, box.x + box.width + layout.gap - group.x);
+	group.height = Math.max(group.height, box.y + box.height + layout.gap - group.y);
 }
 
 /**
@@ -132,18 +143,52 @@ export function addZone(
 	return { data, zone: group };
 }
 
-/** Moves the given cards into a zone, each to the first free slot. Null if there is nothing to do. */
+/**
+ * Moves the given cards into a zone. Each card takes along the cards its arrows lead to
+ * (children, grandchildren…), as one block that keeps its shape. Null if there is nothing to do.
+ */
 export function moveToZone(input: CanvasData, nodeIds: string[], zoneId: string, layout: Layout): CanvasData | null {
 	const data = clone(input);
 	const zone = data.nodes.find((n) => n.id === zoneId && n.type === "group");
 	if (!zone) return null;
-	const ids = new Set(nodeIds);
-	const cards = data.nodes
-		.filter((n) => ids.has(n.id) && n.type !== "group" && !centreInside(n, zone))
+	const byId = new Map(data.nodes.map((n) => [n.id, n]));
+	const children = new Map<string, string[]>();
+	for (const e of data.edges) children.set(e.fromNode, [...(children.get(e.fromNode) ?? []), e.toNode]);
+
+	/** A card plus everything its arrows lead to, skipping groups and cards in `skip`. */
+	const subtree = (root: CanvasNode, skip: Set<string>): CanvasNode[] => {
+		const seen = new Set([root.id]);
+		const block = [root];
+		for (const node of block) {
+			for (const id of children.get(node.id) ?? []) {
+				const child = byId.get(id);
+				if (!child || child.type === "group" || seen.has(id) || skip.has(id)) continue;
+				seen.add(id);
+				block.push(child);
+			}
+		}
+		return block;
+	};
+
+	const selected = [...new Set(nodeIds)]
+		.map((id) => byId.get(id))
+		.filter((n): n is CanvasNode => !!n && n.type !== "group")
 		.sort((a, b) => a.y - b.y || a.x - b.x);
-	if (!cards.length) return null;
-	for (const card of cards) placeIn(data, card, zone, layout);
-	return data;
+	// A selected card that hangs off another selected card travels with it, so start from the top ones.
+	const below = new Set(selected.flatMap((n) => subtree(n, new Set()).slice(1).map((d) => d.id)));
+	const roots = [...selected.filter((n) => !below.has(n.id)), ...selected.filter((n) => below.has(n.id))];
+
+	const taken = new Set<string>();
+	let moved = false;
+	for (const root of roots) {
+		if (taken.has(root.id)) continue;
+		const block = subtree(root, taken);
+		for (const n of block) taken.add(n.id);
+		if (block.every((n) => centreInside(n, zone))) continue;
+		placeBlock(data, block, zone, layout);
+		moved = true;
+	}
+	return moved ? data : null;
 }
 
 export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions): SyncResult {

@@ -46,6 +46,7 @@ Ordine indicativo; ogni voce va validata con l'uso reale.
 - **Integrazione Tasks (fatto)**: se il plugin Tasks è installato si usa il suo indice (filtro globale, stati personalizzati, date); colore per scadenza; comando "Add task" con l'editor di Tasks.
 - **v0.2 (fatto)**: zona Done, zone che si allargano, colore ereditato dalla zona.
 - **v0.3 (fatto)**: comando "New zone", "Move to zone…" dal menu della card.
+- **v0.4 (fatto)**: zona creata al volo dal selettore; le card figlie (frecce uscenti) seguono la card spostata.
 - **Disposizione iniziale**: al primo riempimento, raggruppare per cartella o tag invece di un'unica Inbox. Comando "riordina Inbox".
 - **Card per sezione**: nodo `file` con `subpath` (`#Titolo`) per mostrare solo la sezione con i task, card più compatte.
 - **Zone attive**: la zona scrive anche altre proprietà (es. gruppo "Oggi" → `due: <oggi>`), e viceversa una proprietà cambiata altrove sposta la card.

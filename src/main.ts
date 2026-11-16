@@ -1,16 +1,17 @@
 import {
 	type App,
 	type EventRef,
-	FuzzySuggestModal,
 	type Menu,
 	Modal,
 	Notice,
 	Plugin,
 	Setting,
+	SuggestModal,
 	TFile,
 	debounce,
 	moment,
 	normalizePath,
+	prepareFuzzySearch,
 } from "obsidian";
 import { type CanvasData, type CanvasNode, parseCanvas, serializeCanvas } from "./canvas.ts";
 import { scanVault } from "./scanner.ts";
@@ -194,15 +195,15 @@ export default class CanvasPensumPlugin extends Plugin {
 		const zones = live
 			.getData()
 			.nodes.filter((n) => n.type === "group" && n.id !== DONE_ID && typeof n.label === "string" && n.label.trim());
-		if (!zones.length) {
-			new Notice("No zones yet. Create one with “New zone”.");
-			return;
-		}
-		new ZonePicker(this.app, zones, async (zone) => {
+		new ZonePicker(this.app, zones, async (pick) => {
 			try {
 				const desk = await this.getDesk(false);
 				if (!desk) return;
-				await this.editDesk(desk, (data) => moveToZone(data, ids, zone.id, this.layout()));
+				await this.editDesk(desk, (data) => {
+					if (typeof pick !== "string") return moveToZone(data, ids, pick.id, this.layout());
+					const created = addZone(data, { label: pick }, this.layout());
+					return moveToZone(created.data, ids, created.zone.id, this.layout()) ?? created.data;
+				});
 				await this.sync(false); // zone colour, zone property
 			} catch (e) {
 				console.error("Canvas Pensum", e);
@@ -316,19 +317,31 @@ function promptTaskLine(app: App): Promise<string> {
 	});
 }
 
-class ZonePicker extends FuzzySuggestModal<CanvasNode> {
-	constructor(app: App, private zones: CanvasNode[], private onPick: (zone: CanvasNode) => void) {
+/** Pick an existing zone, or type a new name and press Enter to create it. A string means "create". */
+class ZonePicker extends SuggestModal<CanvasNode | string> {
+	constructor(app: App, private zones: CanvasNode[], private onPick: (zone: CanvasNode | string) => void) {
 		super(app);
-		this.setPlaceholder("Move to zone…");
+		this.setPlaceholder("Zone name: pick one, or type a new one");
+		this.emptyStateText = "Type a name to create a zone";
 	}
-	getItems(): CanvasNode[] {
-		return this.zones;
+	getSuggestions(query: string): (CanvasNode | string)[] {
+		const name = query.trim();
+		const label = (z: CanvasNode) => (z.label as string).trim();
+		if (!name) return this.zones;
+		const search = prepareFuzzySearch(name);
+		const matches = this.zones
+			.map((zone) => ({ zone, match: search(label(zone)) }))
+			.filter((m) => m.match)
+			.sort((a, b) => b.match!.score - a.match!.score)
+			.map((m) => m.zone);
+		const exists = this.zones.some((z) => label(z).toLowerCase() === name.toLowerCase());
+		return exists ? matches : [...matches, name];
 	}
-	getItemText(zone: CanvasNode): string {
-		return (zone.label as string).trim();
+	renderSuggestion(item: CanvasNode | string, el: HTMLElement): void {
+		el.setText(typeof item === "string" ? `Create zone “${item}”` : (item.label as string).trim());
 	}
-	onChooseItem(zone: CanvasNode): void {
-		this.onPick(zone);
+	onChooseSuggestion(item: CanvasNode | string): void {
+		this.onPick(item);
 	}
 }
 

@@ -220,3 +220,38 @@ test("move to zone places cards in free slots and grows the zone", () => {
 	const synced = syncDesk(moved, notes, { ...opts, inheritZoneColor: true });
 	assert.ok(synced.data.nodes.filter((x) => x.type === "file").every((x) => x.color === "5"));
 });
+
+test("move to zone takes the cards the arrows lead to, keeping their arrangement", () => {
+	const data: CanvasData = {
+		nodes: [
+			{ id: "z", type: "group", label: "Today", x: 5000, y: 0, width: 500, height: 500 },
+			{ id: "root", type: "file", file: "a.md", x: 0, y: 0, width: 400, height: 400 },
+			{ id: "kid", type: "text", x: 500, y: 100, width: 200, height: 60 },
+			{ id: "grandkid", type: "text", x: 800, y: 300, width: 200, height: 60 },
+			{ id: "parent", type: "text", x: -400, y: 0, width: 200, height: 60 },
+			{ id: "loose", type: "text", x: 0, y: 900, width: 200, height: 60 },
+		],
+		edges: [
+			{ id: "e0", fromNode: "parent", toNode: "root" },
+			{ id: "e1", fromNode: "root", toNode: "kid" },
+			{ id: "e2", fromNode: "kid", toNode: "grandkid" },
+			{ id: "e3", fromNode: "grandkid", toNode: "root" }, // a cycle must not hang
+		],
+	};
+	const moved = moveToZone(data, ["root"], "z", opts)!;
+	const at = (id: string) => moved.nodes.find((x) => x.id === id)!;
+	const z = at("z");
+	for (const id of ["root", "kid", "grandkid"]) {
+		assert.ok(at(id).x >= z.x && at(id).x + at(id).width <= z.x + z.width, `${id} inside zone (x)`);
+		assert.ok(at(id).y >= z.y && at(id).y + at(id).height <= z.y + z.height, `${id} inside zone (y)`);
+	}
+	assert.deepEqual([at("kid").x - at("root").x, at("kid").y - at("root").y], [500, 100], "shape kept");
+	assert.deepEqual([at("grandkid").x - at("root").x, at("grandkid").y - at("root").y], [800, 300]);
+	assert.deepEqual([at("parent").x, at("loose").y], [-400, 900], "parents and unrelated cards stay");
+	assert.equal(moveToZone(moved, ["root"], "z", opts), null);
+
+	// Selecting a parent and its child moves them once, as one block.
+	const both = moveToZone(data, ["kid", "root"], "z", opts)!;
+	const b = (id: string) => both.nodes.find((x) => x.id === id)!;
+	assert.deepEqual([b("kid").x - b("root").x, b("kid").y - b("root").y], [500, 100]);
+});
