@@ -36,6 +36,7 @@ interface LiveCanvas {
 	nodes?: Map<string, LiveNode>;
 	isDragging?: boolean;
 	zoomToBbox?(box: { minX: number; minY: number; maxX: number; maxY: number }): void;
+	panIntoView?(box: { minX: number; minY: number; maxX: number; maxY: number }): void;
 }
 
 /** A small temple with a tick: the Pensatorium as a place. Drawn on a 24-unit grid, edge to edge like Obsidian's own icons, scaled to its 100. */
@@ -49,7 +50,9 @@ interface LiveNode {
 	isEditing?: boolean;
 	file?: TFile;
 	startEditing?(): void;
-	child?: { editor?: Editor };
+	getBBox?(): { minX: number; minY: number; maxX: number; maxY: number };
+	/** The embedded note, once the card is on screen: its text as loaded, and its editor while editing. */
+	child?: { editor?: Editor; text?: string } | null;
 	moveAndResize?(rect: { x: number; y: number; width: number; height: number }): void;
 	setColor?(color: string): void;
 }
@@ -448,30 +451,47 @@ export default class CanvasPensumPlugin extends Plugin {
 		}).open();
 	}
 
-	/** Opens the note's card for writing, cursor on the empty task. False if the card or line can't be found. */
+	/**
+	 * Opens the note's card for writing, cursor right after the empty task's "- [ ] ".
+	 * False if it can't be done in a few seconds.
+	 *
+	 * A card only has its note loaded while it is on screen, and it reloads the note a moment
+	 * after the file changes; entering edit mode before that would show the old text. So: bring
+	 * the card into view, wait until it has the new line, start editing, then place the cursor.
+	 */
 	private async writeInCard(path: string): Promise<boolean> {
-		for (let attempt = 0; attempt < 25; attempt++) {
-			const nodes = this.liveCanvas(this.deskPath())?.nodes;
-			const node = nodes && [...nodes.values()].find((n) => n.file?.path === path);
-			if (!node?.startEditing) {
-				await sleep(100); // the card is still being added
+		const emptyTask = /^- \[ \][ \t]*$/;
+		let shown = false;
+		for (let attempt = 0; attempt < 100; attempt++, await sleep(50)) {
+			const live = this.liveCanvas(this.deskPath());
+			const node = live?.nodes && [...live.nodes.values()].find((n) => n.file?.path === path);
+			if (!live || !node?.startEditing) continue; // the card is still being added
+			if (!shown) {
+				const box = node.getBBox?.();
+				if (box) live.panIntoView?.(box);
+				shown = true;
 				continue;
 			}
-			node.startEditing();
-			for (let wait = 0; wait < 40; wait++) {
-				await sleep(50);
-				const editor = node.child?.editor;
-				if (!editor) continue;
-				for (let i = 0; i < Math.min(editor.lineCount(), 300); i++) {
-					const text = editor.getLine(i);
-					if (!/^- \[ \]\s*$/.test(text)) continue;
-					if (text !== "- [ ] ") editor.setLine(i, "- [ ] ");
+			const child = node.child;
+			if (typeof child?.text !== "string" || !child.text.split("\n").some((l) => emptyTask.test(l))) continue;
+			const editor = child.editor;
+			if (!node.isEditing || !editor) {
+				node.startEditing();
+				continue;
+			}
+			for (let i = 0; i < Math.min(editor.lineCount(), 500); i++) {
+				if (!emptyTask.test(editor.getLine(i))) continue;
+				const place = () => {
+					if (editor.getLine(i) !== "- [ ] ") editor.setLine(i, "- [ ] ");
 					editor.setCursor({ line: i, ch: 6 });
 					editor.focus();
-					return true;
-				}
+				};
+				place();
+				// The card focuses and scrolls its editor a moment after opening it: have the last word.
+				await sleep(150);
+				if (node.isEditing && emptyTask.test(editor.getLine(i))) place();
+				return true;
 			}
-			return false;
 		}
 		return false;
 	}
