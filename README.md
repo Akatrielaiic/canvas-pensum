@@ -16,7 +16,7 @@ Every note that has open tasks (`- [ ]`) lands as a card on one infinite canvas,
 
 ### Adding tasks
 
-- **Add task to a note** (**Cmd/Ctrl+Shift+A**, or the button among the canvas controls on the right of the Pensatorium) asks which note, with search. Type a name that doesn't exist and press Enter to create the note. With one card selected, its note is the first suggestion. You type the task in a one-line box and press Enter. It goes at the top of the note, below the properties and the title, under a heading that links to the day:
+- **Add task to a note** (**Cmd/Ctrl+Shift+A**, or the button among the canvas controls on the right of the Pensatorium) asks which note, with search. Type a name that doesn't exist and press Enter to create the note. With one card selected, its note is the first suggestion. On the Pensatorium, the empty task is written and the cursor lands on it inside the note's card, so you type it in the note itself, with the Tasks plugin's suggestions. Anywhere else, you type the task in a one-line box and press Enter, without leaving what you were doing. Either way it goes at the top of the note, below the properties and the title, under a heading that links to the day:
 
   ```markdown
   ### [[2026-11-16]]

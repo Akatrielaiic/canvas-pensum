@@ -1,5 +1,6 @@
 import {
 	type App,
+	type Editor,
 	type EventRef,
 	ItemView,
 	type Menu,
@@ -46,9 +47,14 @@ const PENSATORIUM_SVG =
 
 interface LiveNode {
 	isEditing?: boolean;
+	file?: TFile;
+	startEditing?(): void;
+	child?: { editor?: Editor };
 	moveAndResize?(rect: { x: number; y: number; width: number; height: number }): void;
 	setColor?(color: string): void;
 }
+
+const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
 /**
  * Updates an open canvas. Position, size and colour changes go node by node, which does not
@@ -95,6 +101,8 @@ type CanvasMenuEvents = {
 
 export default class CanvasPensumPlugin extends Plugin {
 	settings: CanvasPensumSettings = DEFAULT_SETTINGS;
+	/** Notes with a task being written in their card: kept on the desk even while the task is still empty. */
+	private capturing = new Map<string, number>();
 	/** Re-run the sync shortly (the desk changed, or an update had to wait). */
 	private syncSoon = debounce(() => this.sync(false), 1000, true);
 
@@ -180,13 +188,17 @@ export default class CanvasPensumPlugin extends Plugin {
 
 	/** "Move selected cards to zone" on the Pensatorium. Public so Canvas Arbor can hand the key over. */
 	zoneCommand(checking: boolean): boolean {
-		// Only when the Pensatorium is the canvas in front, not merely open in another tab.
-		const active = this.app.workspace.getActiveViewOfType(ItemView) as (ItemView & { file?: TFile }) | null;
-		if (active?.file?.path !== this.deskPath()) return false;
+		if (!this.deskIsActive()) return false;
 		const ids = this.selectedIds();
 		if (!ids.length) return false;
 		if (!checking) this.moveToZone(ids);
 		return true;
+	}
+
+	/** The Pensatorium is the canvas in front, not merely open in another tab. */
+	private deskIsActive(): boolean {
+		const active = this.app.workspace.getActiveViewOfType(ItemView) as (ItemView & { file?: TFile }) | null;
+		return active?.file?.path === this.deskPath() && !!this.liveCanvas(this.deskPath());
 	}
 
 	private arbor(): { zoneCommand?(checking: boolean): boolean } | undefined {
@@ -314,6 +326,12 @@ export default class CanvasPensumPlugin extends Plugin {
 			if (manual) new Notice("Pensatorium: the Tasks plugin is still indexing, cards will appear in a moment.");
 			return desk;
 		}
+		for (const [path, until] of this.capturing) {
+			const note = notes.find((n) => n.path === path);
+			if ((note && note.open > 0) || Date.now() > until) this.capturing.delete(path);
+			else if (note) note.open = 1;
+			else notes.push({ path, open: 1, done: 0 });
+		}
 		const run = (data: CanvasData) =>
 			syncDesk(data, notes, {
 				...this.layout(),
@@ -382,40 +400,80 @@ export default class CanvasPensumPlugin extends Plugin {
 		return tasksApi ? tasksApi.createTaskLineModal() : promptTaskLine(this.app);
 	}
 
-	/** Pick a note (or name a new one), write the task: it goes at the top of that note. */
+	/**
+	 * Pick a note (or name a new one) and add a task at the top of it.
+	 * On the Pensatorium the empty task is written and the cursor goes to it, inside the note's
+	 * card, so it is typed in the note itself (with Tasks' suggestions). Anywhere else the task
+	 * is typed in a one-line box, without leaving what you were doing.
+	 */
 	private addTaskToNote() {
+		const onDesk = this.deskIsActive();
 		new NotePicker(this.app, this.selectedNote(), async (pick) => {
 			try {
-				// A plain one-line box, not the Tasks editor: type, Enter, done. Tasks syntax typed here is kept.
-				const line = await promptTaskLine(this.app, `Task for ${typeof pick === "string" ? pick : pick.basename}`);
+				const name = typeof pick === "string" ? pick : pick.basename;
+				const line = onDesk ? "- [ ] " : await promptTaskLine(this.app, `Task for ${name}`);
 				if (!line) return;
 				const heading = this.settings.captureDate
 					? `### [[${moment().format(this.settings.captureDateFormat || "YYYY-MM-DD")}]]`
 					: null;
 				const place = (text: string) => (heading ? insertUnderHeading(text, heading, line) : insertAtTop(text, line));
-				let file: TFile;
+
+				let file = typeof pick === "string" ? null : pick;
 				if (typeof pick === "string") {
 					const path = normalizePath(notePath(pick, this.app.fileManager.getNewFileParent("").path));
 					if (!path) return;
 					const existing = this.app.vault.getAbstractFileByPath(path);
-					if (existing instanceof TFile) {
-						file = existing;
-						await this.app.vault.process(file, place);
-					} else {
+					if (existing instanceof TFile) file = existing;
+					else {
 						const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
 						if (folder && !this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
-						file = await this.app.vault.create(path, place(""));
+						file = await this.app.vault.create(path, "");
 					}
-				} else {
-					file = pick;
-					await this.app.vault.process(file, place);
 				}
-				new Notice(`Task added to ${file.basename}`);
+				if (!file) return;
+				await this.app.vault.process(file, place);
+
+				if (!onDesk) {
+					new Notice(`Task added to ${file.basename}`);
+					return;
+				}
+				// An empty task may not count as a task yet: hold the card on the desk meanwhile.
+				this.capturing.set(file.path, Date.now() + 2 * 60 * 1000);
+				await this.sync(false);
+				if (!(await this.writeInCard(file.path))) new Notice(`Empty task added to ${file.basename}: open its card to write it.`);
 			} catch (e) {
 				console.error("Canvas Pensum", e);
 				new Notice("Canvas Pensum: could not add the task (see console).");
 			}
 		}).open();
+	}
+
+	/** Opens the note's card for writing, cursor on the empty task. False if the card or line can't be found. */
+	private async writeInCard(path: string): Promise<boolean> {
+		for (let attempt = 0; attempt < 25; attempt++) {
+			const nodes = this.liveCanvas(this.deskPath())?.nodes;
+			const node = nodes && [...nodes.values()].find((n) => n.file?.path === path);
+			if (!node?.startEditing) {
+				await sleep(100); // the card is still being added
+				continue;
+			}
+			node.startEditing();
+			for (let wait = 0; wait < 40; wait++) {
+				await sleep(50);
+				const editor = node.child?.editor;
+				if (!editor) continue;
+				for (let i = 0; i < Math.min(editor.lineCount(), 300); i++) {
+					const text = editor.getLine(i);
+					if (!/^- \[ \]\s*$/.test(text)) continue;
+					if (text !== "- [ ] ") editor.setLine(i, "- [ ] ");
+					editor.setCursor({ line: i, ch: 6 });
+					editor.focus();
+					return true;
+				}
+			}
+			return false;
+		}
+		return false;
 	}
 
 	/** Quick capture: Tasks' own editor when available, a one-line prompt otherwise. */
