@@ -11,7 +11,7 @@ Una scrivania infinita dove compaiono da sole tutte le note con cose da fare, e 
 
 1. **Canvas nativo, nessuna vista custom.** La scrivania è un normale file `.canvas` (formato aperto JSON Canvas). Pan, zoom, touch, gruppi, frecce, colori: tutto già fatto da Obsidian, anche su mobile. Se disinstalli il plugin, la scrivania resta.
 2. **Le card sono le note, non copie.** Ogni card è un nodo `file` che incorpora la nota. Spuntare un task sulla card modifica la nota vera. Niente sincronizzazione bidirezionale, niente stati duplicati.
-3. **La posizione è dell'utente.** Il plugin piazza solo le card nuove (Inbox) e, se richiesto, archivia quelle completate (zona Done). Le zone possono allargarsi per contenere le card, mai restringersi o spostarsi.
+3. **La posizione è dell'utente, l'ordine è del plugin.** Il plugin piazza le card nuove (Inbox) e archivia quelle completate (Done). Dentro le zone tiene in ordine: le zone si allargano per contenere card e figli, e ciò che si sovrappone viene spinto a destra o in basso. Fuori dalle zone non tocca nulla.
 4. **Il plugin possiede solo ciò che crea.** I nodi creati dal plugin hanno id con prefisso `st-`. Tutto il resto del canvas è intoccabile.
 5. **Solo metadata cache.** La scansione legge l'indice che Obsidian ha già in memoria, senza aprire file: veloce anche su telefono e su vault grandi.
 6. **Lo spazio diventa dato (opzionale).** Il gruppo in cui sta una card può essere scritto nella nota (`pensum-zone: Oggi`), così la disposizione è interrogabile da Bases, Dataview, ricerca.
@@ -47,6 +47,7 @@ Ordine indicativo; ogni voce va validata con l'uso reale.
 - **v0.2 (fatto)**: zona Done, zone che si allargano, colore ereditato dalla zona.
 - **v0.3 (fatto)**: comando "New zone", "Move to zone…" dal menu della card.
 - **v0.4 (fatto)**: zona creata al volo dal selettore; le card figlie (frecce uscenti) seguono la card spostata.
+- **v0.5 (fatto)**: zone ordinate (figli inclusi, niente sovrapposizioni, zone vicine spostate); aggiornamenti nodo per nodo che non interrompono la scrittura.
 - **Disposizione iniziale**: al primo riempimento, raggruppare per cartella o tag invece di un'unica Inbox. Comando "riordina Inbox".
 - **Card per sezione**: nodo `file` con `subpath` (`#Titolo`) per mostrare solo la sezione con i task, card più compatte.
 - **Zone attive**: la zona scrive anche altre proprietà (es. gruppo "Oggi" → `due: <oggi>`), e viceversa una proprietà cambiata altrove sposta la card.

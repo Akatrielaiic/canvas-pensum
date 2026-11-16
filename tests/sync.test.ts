@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { CanvasData } from "../src/canvas.ts";
-import { DONE_ID, INBOX_ID, type SyncOptions, addZone, moveToZone, syncDesk } from "../src/sync.ts";
+import { DONE_ID, INBOX_ID, type SyncOptions, addZone, moveToZone, syncDesk, tidyZones } from "../src/sync.ts";
 import { centreInside, computeZones } from "../src/zones.ts";
 
 let n = 0;
@@ -289,4 +289,91 @@ test("a finished card takes its children to Done, but not notes that are still o
 	assert.ok(centreInside(at(back, "parent.md"), inbox));
 	assert.deepEqual([at(back, "memo").x - at(back, "parent.md").x, at(back, "memo").y - at(back, "parent.md").y], [20, 2000]);
 	assert.equal(syncDesk(back.data, notes, move).changed, false);
+});
+
+const contains = (zone: any, n: any) =>
+	n.x >= zone.x && n.y >= zone.y && n.x + n.width <= zone.x + zone.width && n.y + n.height <= zone.y + zone.height;
+
+test("tidy: a resized card pushes its neighbours away and the zone grows", () => {
+	const data: CanvasData = {
+		nodes: [
+			{ id: "z", type: "group", label: "Today", x: 0, y: 0, width: 920, height: 480 },
+			{ id: "a", type: "file", file: "a.md", x: 40, y: 40, width: 700, height: 400 }, // was 400 wide
+			{ id: "b", type: "file", file: "b.md", x: 480, y: 40, width: 400, height: 400 },
+			{ id: "free", type: "text", x: 5000, y: 5000, width: 100, height: 100 },
+		],
+		edges: [],
+	};
+	const before = JSON.parse(JSON.stringify(data));
+	tidyZones(data, opts);
+	const [z, a, b, free] = data.nodes;
+	assert.deepEqual(a, before.nodes[1], "the resized card stays");
+	assert.ok(!overlap(a, b) && b.x >= a.x + a.width, "neighbour moved right");
+	assert.ok(contains(z, a) && contains(z, b), "zone holds both");
+	assert.deepEqual(free, before.nodes[3], "cards outside zones are left alone");
+	const settled = JSON.stringify(data);
+	tidyZones(data, opts);
+	assert.equal(JSON.stringify(data), settled, "stable");
+});
+
+test("tidy: children added outside the zone are taken in, and the tree moves as one", () => {
+	const data: CanvasData = {
+		nodes: [
+			{ id: "z", type: "group", label: "Today", x: 0, y: 0, width: 480, height: 1000 },
+			{ id: "next", type: "group", label: "Waiting", x: 560, y: 0, width: 480, height: 480 },
+			{ id: "w", type: "file", file: "w.md", x: 600, y: 40, width: 400, height: 400 },
+			{ id: "a", type: "file", file: "a.md", x: 40, y: 40, width: 400, height: 400 },
+			{ id: "b", type: "file", file: "b.md", x: 40, y: 500, width: 400, height: 400 },
+			{ id: "kid", type: "text", x: 500, y: 600, width: 200, height: 60 }, // child of b, outside the zone
+			{ id: "elsewhere", type: "text", x: 620, y: 300, width: 100, height: 40 }, // child of a, in another zone
+		],
+		edges: [
+			{ id: "e1", fromNode: "b", toNode: "kid" },
+			{ id: "e2", fromNode: "a", toNode: "elsewhere" },
+		],
+	};
+	tidyZones(data, opts);
+	const at = (id: string) => data.nodes.find((x) => x.id === id)!;
+	assert.ok(contains(at("z"), at("kid")), "zone grew around the new child");
+	assert.deepEqual([at("kid").x - at("b").x, at("kid").y - at("b").y], [460, 100], "tree kept its shape");
+	assert.ok(!overlap(at("z"), at("next")), "the neighbouring zone was pushed away");
+	assert.ok(contains(at("next"), at("w")) && contains(at("next"), at("elsewhere")), "with its cards");
+	assert.ok(!contains(at("z"), at("elsewhere")), "a child living in another zone stays there");
+	const settled = JSON.stringify(data);
+	tidyZones(data, opts);
+	assert.equal(JSON.stringify(data), settled, "stable");
+});
+
+test("tidy: the pinned card stays even when it is not the top-left one", () => {
+	const make = (): CanvasData => ({
+		nodes: [
+			{ id: "z", type: "group", label: "Today", x: 0, y: 0, width: 1000, height: 1000 },
+			{ id: "a", type: "text", x: 40, y: 40, width: 300, height: 300 },
+			{ id: "b", type: "text", x: 200, y: 200, width: 300, height: 300 },
+		],
+		edges: [],
+	});
+	const plain = make();
+	tidyZones(plain, opts);
+	assert.deepEqual([plain.nodes[1].x, plain.nodes[1].y], [40, 40]);
+	const pinned = make();
+	tidyZones(pinned, opts, ["b"]);
+	assert.deepEqual([pinned.nodes[2].x, pinned.nodes[2].y], [200, 200]);
+	assert.ok(!overlap(pinned.nodes[1], pinned.nodes[2]));
+});
+
+test("tidy inside a sync settles in one go", () => {
+	const zoned = { ...opts, growZones: true, onComplete: "move" as const };
+	const notes = [note("a.md"), note("b.md"), note("c.md")];
+	const first = syncDesk(empty(), notes, zoned);
+	const a = first.data.nodes.find((x) => x.file === "a.md")!;
+	a.width = 900;
+	a.height = 900;
+	const r = syncDesk(first.data, notes, zoned);
+	const cards = r.data.nodes.filter((x) => x.type === "file");
+	for (let i = 0; i < cards.length; i++)
+		for (let j = i + 1; j < cards.length; j++) assert.ok(!overlap(cards[i], cards[j]));
+	const inbox = r.data.nodes.find((x) => x.id === INBOX_ID)!;
+	assert.ok(cards.every((c) => contains(inbox, c)));
+	assert.equal(syncDesk(r.data, notes, zoned).changed, false);
 });

@@ -26,7 +26,51 @@ interface LiveCanvas {
 	setData(data: CanvasData): void;
 	requestSave(): void;
 	selection?: Set<{ id: string }>;
+	nodes?: Map<string, LiveNode>;
+	isDragging?: boolean;
 	zoomToBbox?(box: { minX: number; minY: number; maxX: number; maxY: number }): void;
+}
+
+interface LiveNode {
+	isEditing?: boolean;
+	moveAndResize?(rect: { x: number; y: number; width: number; height: number }): void;
+	setColor?(color: string): void;
+}
+
+/**
+ * Updates an open canvas. Position, size and colour changes go node by node, which does not
+ * disturb a card being typed in. Anything bigger reloads the canvas data, so it waits until
+ * nobody is typing. Returns false when the change has to be retried later.
+ */
+function applyLive(live: LiveCanvas, next: CanvasData): boolean {
+	if (live.isDragging) return false;
+	const current = live.getData();
+	const rest = ({ x, y, width, height, color, ...other }: CanvasNode) => JSON.stringify(other);
+	const nodes = live.nodes;
+	const light =
+		!!nodes &&
+		current.nodes.length === next.nodes.length &&
+		JSON.stringify(current.edges) === JSON.stringify(next.edges) &&
+		next.nodes.every((n, i) => {
+			const c = current.nodes[i];
+			const node = nodes.get(n.id);
+			return c.id === n.id && rest(c) === rest(n) && !!node?.moveAndResize && !!node.setColor;
+		});
+	if (light && nodes) {
+		next.nodes.forEach((n, i) => {
+			const c = current.nodes[i];
+			const node = nodes.get(n.id) as LiveNode;
+			if (c.x !== n.x || c.y !== n.y || c.width !== n.width || c.height !== n.height) {
+				node.moveAndResize?.({ x: n.x, y: n.y, width: n.width, height: n.height });
+			}
+			if (c.color !== n.color) node.setColor?.(n.color ?? "");
+		});
+	} else {
+		if ([...(nodes?.values() ?? [])].some((n) => n.isEditing)) return false;
+		live.setData(next);
+	}
+	live.requestSave();
+	return true;
 }
 
 /** Undocumented workspace events fired by the canvas for its context menus. */
@@ -38,6 +82,8 @@ type CanvasMenuEvents = {
 
 export default class CanvasPensumPlugin extends Plugin {
 	settings: CanvasPensumSettings = DEFAULT_SETTINGS;
+	/** Re-run the sync shortly (the desk changed, or an update had to wait). */
+	private syncSoon = debounce(() => this.sync(false), 1000, true);
 
 	async onload() {
 		this.settings = { ...DEFAULT_SETTINGS, ...(await this.loadData()) };
@@ -81,9 +127,6 @@ export default class CanvasPensumPlugin extends Plugin {
 		);
 
 		const autoSync = debounce(() => this.settings.autoSync && this.sync(false), 2000, true);
-		// The desk itself changed (a card was dragged, a zone recoloured): re-apply zone rules.
-		const deskChanged = debounce(() => this.sync(false), 1000, true);
-
 		// Wait for the layout: before that, the cache fires "changed" for every file in the vault.
 		this.app.workspace.onLayoutReady(() => {
 			this.registerEvent(this.app.metadataCache.on("changed", autoSync));
@@ -96,7 +139,8 @@ export default class CanvasPensumPlugin extends Plugin {
 			this.registerInterval(window.setInterval(autoSync, 60 * 60 * 1000));
 			this.registerEvent(
 				this.app.vault.on("modify", (file) => {
-					if (file.path === this.deskPath()) deskChanged();
+					// A card was dragged or resized, a zone recoloured: re-apply the zone rules.
+					if (file.path === this.deskPath()) this.syncSoon();
 				}),
 			);
 		});
@@ -146,10 +190,7 @@ export default class CanvasPensumPlugin extends Plugin {
 		const live = this.liveCanvas(desk.path);
 		if (live) {
 			const next = edit(live.getData());
-			if (next) {
-				live.setData(next);
-				live.requestSave();
-			}
+			if (next && !applyLive(live, next)) this.syncSoon(); // busy: try again in a moment
 		} else {
 			await this.app.vault.process(desk, (raw) => {
 				const next = edit(parseCanvas(raw));
@@ -231,6 +272,7 @@ export default class CanvasPensumPlugin extends Plugin {
 				inboxLabel: "Inbox",
 				doneLabel: "Done",
 				growZones: this.settings.growZones,
+				pinned: this.selectedIds(),
 				inheritZoneColor: this.settings.inheritZoneColor,
 				onComplete: this.settings.onComplete,
 				doneColor: "4",

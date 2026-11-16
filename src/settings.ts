@@ -139,8 +139,10 @@ export class CanvasPensumSettingTab extends PluginSettingTab {
 			.setDesc("A zone is any group you draw on the Pensatorium.");
 
 		new Setting(containerEl)
-			.setName("Grow zones to fit")
-			.setDesc("When you drop a card in a zone, the zone grows to contain it. Zones never shrink or move.")
+			.setName("Keep zones tidy")
+			.setDesc(
+				"Zones grow to hold their cards and the cards those point to with arrows. Overlapping cards and zones are pushed apart, to the right or down. Zones never shrink.",
+			)
 			.addToggle((t) =>
 				t.setValue(s.growZones).onChange(async (v) => {
 					s.growZones = v;

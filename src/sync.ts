@@ -43,8 +43,10 @@ export interface SyncOptions extends Layout {
 	todayColor?: string;
 	/** Cards take the colour of the zone they sit in. */
 	inheritZoneColor?: boolean;
-	/** Zones grow to contain the cards dropped in them. */
+	/** Zones grow to contain their cards (and the cards those point to), and overlaps are pushed apart. */
 	growZones?: boolean;
+	/** Ids of cards that should stay put when overlaps are resolved (the ones the user is working on). */
+	pinned?: string[];
 	/** Whether a path still exists in the vault. Cards of deleted notes are removed. */
 	exists?: (path: string) => boolean;
 	newId?: () => string;
@@ -198,6 +200,124 @@ export function moveToZone(input: CanvasData, nodeIds: string[], zoneId: string,
 	return moved ? data : null;
 }
 
+/** Something that moves as one piece: `solid` is what must not overlap, `nodes` is what travels. */
+interface Unit {
+	nodes: CanvasNode[];
+	solid: CanvasNode[];
+}
+
+/**
+ * Pushes overlapping units apart, only ever to the right or down, so it always settles.
+ * Units nearer the top-left stay; pinned ones stay first of all.
+ */
+function separate(units: Unit[], pad: number, pinned: Set<string>): void {
+	const keyed = units.map((unit) => {
+		const x = Math.min(...unit.solid.map((n) => n.x));
+		const y = Math.min(...unit.solid.map((n) => n.y));
+		return { unit, x, y, pin: unit.nodes.some((n) => pinned.has(n.id)) ? 0 : 1 };
+	});
+	keyed.sort((a, b) => a.pin - b.pin || a.x + a.y - (b.x + b.y) || a.y - b.y || a.x - b.x);
+	const settled: Unit[] = [];
+	for (const { unit } of keyed) {
+		for (let guard = 0; guard < 500; guard++) {
+			let dx = 0;
+			let dy = 0;
+			for (const other of settled) {
+				for (const a of other.solid) {
+					for (const b of unit.solid) {
+						if (!intersects(a, b)) continue;
+						dx = Math.max(dx, a.x + a.width + pad - b.x);
+						dy = Math.max(dy, a.y + a.height + pad - b.y);
+					}
+				}
+			}
+			if (!dx && !dy) break;
+			for (const n of unit.nodes) {
+				if (dx <= dy) n.x += dx;
+				else n.y += dy;
+			}
+		}
+		settled.push(unit);
+	}
+}
+
+/**
+ * Makes every zone hold what belongs to it without overlaps. In place.
+ *
+ * A card belongs to the innermost zone around its centre. Cards its arrows lead to belong there
+ * too, unless they already sit in a zone of their own. Cards joined by arrows move as one piece.
+ * Zones only grow; zones that end up overlapping are pushed apart with everything in them.
+ */
+export function tidyZones(data: CanvasData, layout: Layout, pinned: string[] = []): void {
+	const pad = layout.gap / 2;
+	const pins = new Set(pinned);
+	const groups = groupsBySize(data);
+	const cards = data.nodes.filter((n) => n.type !== "group");
+
+	const home = new Map<CanvasNode, CanvasNode>();
+	for (const card of cards) {
+		const zone = zoneOf(card, groups);
+		if (zone) home.set(card, zone);
+	}
+	const subtree = subtrees(data);
+	const byPosition = new Set(home.keys());
+	for (const card of byPosition) {
+		for (const below of subtree(card, (n) => byPosition.has(n)).slice(1)) {
+			if (!home.has(below)) home.set(below, home.get(card) as CanvasNode);
+		}
+	}
+
+	const parent = new Map<CanvasNode, CanvasNode | undefined>();
+	groups.forEach((g, i) => parent.set(g, zoneOf(g, groups.slice(i + 1).filter((o) => area(o) > area(g)))));
+
+	const linked = new Map<string, string[]>();
+	for (const e of data.edges) {
+		linked.set(e.fromNode, [...(linked.get(e.fromNode) ?? []), e.toNode]);
+		linked.set(e.toNode, [...(linked.get(e.toNode) ?? []), e.fromNode]);
+	}
+	const contents = new Map<CanvasNode, CanvasNode[]>();
+	const unitsIn = (zone: CanvasNode | undefined): Unit[] => {
+		const units: Unit[] = [];
+		const members = new Map(cards.filter((c) => zone && home.get(c) === zone).map((c) => [c.id, c]));
+		const seen = new Set<string>();
+		for (const start of members.values()) {
+			if (seen.has(start.id)) continue;
+			seen.add(start.id);
+			const piece = [start];
+			for (const node of piece) {
+				for (const id of linked.get(node.id) ?? []) {
+					const next = members.get(id);
+					if (!next || seen.has(id)) continue;
+					seen.add(id);
+					piece.push(next);
+				}
+			}
+			units.push({ nodes: piece, solid: piece });
+		}
+		for (const g of groups) {
+			if (parent.get(g) === zone) units.push({ nodes: [g, ...(contents.get(g) ?? [])], solid: [g] });
+		}
+		return units;
+	};
+
+	// Smallest first: a zone inside another is settled before the one around it.
+	for (const zone of groups) {
+		const units = unitsIn(zone);
+		separate(units, pad, pins);
+		const inside = units.flatMap((u) => u.nodes);
+		for (const m of inside) {
+			const right = Math.max(zone.x + zone.width, m.x + m.width + pad);
+			const bottom = Math.max(zone.y + zone.height, m.y + m.height + pad);
+			zone.x = Math.min(zone.x, m.x - pad);
+			zone.y = Math.min(zone.y, m.y - pad);
+			zone.width = right - zone.x;
+			zone.height = bottom - zone.y;
+		}
+		contents.set(zone, inside);
+	}
+	separate(unitsIn(undefined), pad, pins);
+}
+
 export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions): SyncResult {
 	const data = clone(input);
 	const before = JSON.stringify(data);
@@ -284,19 +404,13 @@ export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions
 		}
 	}
 
-	// 4. Grow zones around what was dropped in them (smallest first, so outer zones wrap inner ones).
+	// 4. Keep zones tidy: no overlapping cards, every zone wraps what belongs to it.
 	if (opts.growZones) {
-		const pad = opts.gap / 2;
-		for (const group of groupsBySize(data)) {
-			for (const m of data.nodes) {
-				if (m === group || !centreInside(m, group) || (m.type === "group" && area(m) >= area(group))) continue;
-				const right = Math.max(group.x + group.width, m.x + m.width + pad);
-				const bottom = Math.max(group.y + group.height, m.y + m.height + pad);
-				group.x = Math.min(group.x, m.x - pad);
-				group.y = Math.min(group.y, m.y - pad);
-				group.width = right - group.x;
-				group.height = bottom - group.y;
-			}
+		for (let pass = 0, last = ""; pass < 5; pass++) {
+			tidyZones(data, opts, opts.pinned);
+			const now = JSON.stringify(data.nodes);
+			if (now === last) break;
+			last = now;
 		}
 	}
 
