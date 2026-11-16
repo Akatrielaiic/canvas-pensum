@@ -51,6 +51,8 @@ export default class CanvasPensumPlugin extends Plugin {
 		this.addCommand({
 			id: "move-to-zone",
 			name: "Move selected cards to zone",
+			// M for "move". Free in Obsidian, Canvas and Canvas Arbor; can be changed in Settings → Hotkeys.
+			hotkeys: [{ modifiers: ["Mod", "Shift"], key: "m" }],
 			checkCallback: (checking) => {
 				const ids = this.selectedIds();
 				if (!ids.length) return false;

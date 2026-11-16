@@ -255,3 +255,38 @@ test("move to zone takes the cards the arrows lead to, keeping their arrangement
 	const b = (id: string) => both.nodes.find((x) => x.id === id)!;
 	assert.deepEqual([b("kid").x - b("root").x, b("kid").y - b("root").y], [500, 100]);
 });
+
+test("a finished card takes its children to Done, but not notes that are still open", () => {
+	const move = { ...opts, onComplete: "move" as const };
+	const notes = [note("parent.md"), note("openkid.md")];
+	const first = syncDesk(empty(), notes, move);
+	const id = (p: string) => first.data.nodes.find((x) => x.file === p)!.id;
+	const parent = first.data.nodes.find((x) => x.file === "parent.md")!;
+	first.data.nodes.push({ id: "memo", type: "text", x: parent.x + 20, y: parent.y + 2000, width: 200, height: 60 });
+	first.data.edges.push(
+		{ id: "e1", fromNode: id("parent.md"), toNode: "memo" },
+		{ id: "e2", fromNode: id("parent.md"), toNode: id("openkid.md") },
+	);
+
+	const after = [note("parent.md", 0, 1), note("openkid.md")];
+	const done = syncDesk(first.data, after, move);
+	const at = (r: typeof done, key: string) => r.data.nodes.find((x) => x.id === key || x.file === key)!;
+	const zone = at(done, DONE_ID);
+	assert.ok(centreInside(at(done, "parent.md"), zone));
+	assert.ok(centreInside(at(done, "memo"), zone), "the attached memo came along");
+	assert.deepEqual(
+		[at(done, "memo").x - at(done, "parent.md").x, at(done, "memo").y - at(done, "parent.md").y],
+		[20, 2000],
+		"arrangement kept",
+	);
+	assert.ok(zone.y + zone.height >= at(done, "memo").y + 60, "Done grew to hold the block");
+	assert.deepEqual(at(done, "openkid.md"), at(first, "openkid.md"), "the open note stayed put");
+	assert.equal(syncDesk(done.data, after, move).changed, false);
+
+	// Reopened: back to the Inbox, memo included.
+	const back = syncDesk(done.data, notes, move);
+	const inbox = at(back, INBOX_ID);
+	assert.ok(centreInside(at(back, "parent.md"), inbox));
+	assert.deepEqual([at(back, "memo").x - at(back, "parent.md").x, at(back, "memo").y - at(back, "parent.md").y], [20, 2000]);
+	assert.equal(syncDesk(back.data, notes, move).changed, false);
+});

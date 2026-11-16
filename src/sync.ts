@@ -144,6 +144,29 @@ export function addZone(
 }
 
 /**
+ * Returns a function giving a card plus everything its arrows lead to (children, grandchildren…).
+ * Groups are never included; `skip` prunes a card and whatever hangs below it.
+ */
+function subtrees(data: CanvasData): (root: CanvasNode, skip?: (n: CanvasNode) => boolean) => CanvasNode[] {
+	const byId = new Map(data.nodes.map((n) => [n.id, n]));
+	const children = new Map<string, string[]>();
+	for (const e of data.edges) children.set(e.fromNode, [...(children.get(e.fromNode) ?? []), e.toNode]);
+	return (root, skip) => {
+		const seen = new Set([root.id]);
+		const block = [root];
+		for (const node of block) {
+			for (const id of children.get(node.id) ?? []) {
+				const child = byId.get(id);
+				if (!child || child.type === "group" || seen.has(id) || skip?.(child)) continue;
+				seen.add(id);
+				block.push(child);
+			}
+		}
+		return block;
+	};
+}
+
+/**
  * Moves the given cards into a zone. Each card takes along the cards its arrows lead to
  * (children, grandchildren…), as one block that keeps its shape. Null if there is nothing to do.
  */
@@ -152,37 +175,21 @@ export function moveToZone(input: CanvasData, nodeIds: string[], zoneId: string,
 	const zone = data.nodes.find((n) => n.id === zoneId && n.type === "group");
 	if (!zone) return null;
 	const byId = new Map(data.nodes.map((n) => [n.id, n]));
-	const children = new Map<string, string[]>();
-	for (const e of data.edges) children.set(e.fromNode, [...(children.get(e.fromNode) ?? []), e.toNode]);
-
-	/** A card plus everything its arrows lead to, skipping groups and cards in `skip`. */
-	const subtree = (root: CanvasNode, skip: Set<string>): CanvasNode[] => {
-		const seen = new Set([root.id]);
-		const block = [root];
-		for (const node of block) {
-			for (const id of children.get(node.id) ?? []) {
-				const child = byId.get(id);
-				if (!child || child.type === "group" || seen.has(id) || skip.has(id)) continue;
-				seen.add(id);
-				block.push(child);
-			}
-		}
-		return block;
-	};
+	const subtree = subtrees(data);
 
 	const selected = [...new Set(nodeIds)]
 		.map((id) => byId.get(id))
 		.filter((n): n is CanvasNode => !!n && n.type !== "group")
 		.sort((a, b) => a.y - b.y || a.x - b.x);
 	// A selected card that hangs off another selected card travels with it, so start from the top ones.
-	const below = new Set(selected.flatMap((n) => subtree(n, new Set()).slice(1).map((d) => d.id)));
+	const below = new Set(selected.flatMap((n) => subtree(n).slice(1).map((d) => d.id)));
 	const roots = [...selected.filter((n) => !below.has(n.id)), ...selected.filter((n) => below.has(n.id))];
 
 	const taken = new Set<string>();
 	let moved = false;
 	for (const root of roots) {
 		if (taken.has(root.id)) continue;
-		const block = subtree(root, taken);
+		const block = subtree(root, (n) => taken.has(n.id));
 		for (const n of block) taken.add(n.id);
 		if (block.every((n) => centreInside(n, zone))) continue;
 		placeBlock(data, block, zone, layout);
@@ -259,14 +266,20 @@ export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions
 	}
 
 	// 3. File finished cards in the Done zone; a card reopened while in there goes back to the Inbox.
+	//    Cards hanging off it by arrows travel along, except our own cards in the other state:
+	//    an open note under a finished one stays out of Done, and the other way round.
 	if (opts.onComplete === "move") {
+		const subtree = subtrees(data);
+		const ours = (n: CanvasNode) => n.type === "file" && !!n.file && n.id.startsWith(MANAGED_PREFIX);
 		let doneZone = data.nodes.find((n) => n.id === DONE_ID && n.type === "group");
 		for (const node of ourCards()) {
 			if (open.has(node.file)) {
-				if (doneZone && centreInside(node, doneZone)) place(node, inbox());
+				if (!doneZone || !centreInside(node, doneZone)) continue;
+				placeBlock(data, subtree(node, (n) => ours(n) && !open.has(n.file as string)), inbox(), opts);
 			} else {
 				doneZone ??= ensureGroup(DONE_ID, opts.doneLabel ?? "Done", "right", opts.doneColor);
-				if (!centreInside(node, doneZone)) place(node, doneZone);
+				if (centreInside(node, doneZone)) continue;
+				placeBlock(data, subtree(node, (n) => ours(n) && open.has(n.file as string)), doneZone, opts);
 			}
 		}
 	}

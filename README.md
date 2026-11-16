@@ -11,7 +11,7 @@ Every note that has open tasks (`- [ ]`) lands as a card on one infinite canvas,
 - **Open Pensatorium** (ribbon icon or command) creates `Pensatorium.canvas` and fills it.
 - New notes with open tasks appear in the **Inbox** group. Drag them wherever you like.
 - Cards are the notes themselves: tick a checkbox on the card and the note is updated. Nothing is copied.
-- When a note has no open tasks left, its card turns green and moves to the **Done** zone (or stays put, or is removed: your choice). Delete cards from Done whenever you like; the notes are untouched, and a note only comes back if it gets a new open task.
+- When a note has no open tasks left, its card turns green and moves to the **Done** zone, along with the cards its arrows lead to (or stays put, or is removed: your choice). Delete cards from Done whenever you like; the notes are untouched, and a note only comes back if it gets a new open task.
 - Apart from that, the plugin never moves or deletes a card you placed, and never touches cards you added by hand.
 
 ### With the Tasks plugin
@@ -29,7 +29,7 @@ Without Tasks, the Pensatorium works on plain checkboxes and **Add task** is a o
 A zone is a named group on the Pensatorium (`Today`, `This week`, `Waiting`…).
 
 - **New zone** (command) asks for a name and a colour and adds an empty zone next to the Inbox. Any group you draw yourself is a zone too.
-- **Move to zone…** in a card's menu (or the *Move selected cards to zone* command) sends the selected cards to a zone you pick from a list. Type a name that doesn't exist and press Enter to create that zone on the spot. Cards connected by arrows *from* the card (its children, and theirs) move with it and keep their arrangement. Dragging works as well.
+- **Move to zone…** in a card's menu (or the *Move selected cards to zone* command, **Cmd/Ctrl+Shift+M**) sends the selected cards to a zone you pick from a list. Type a name that doesn't exist and press Enter to create that zone on the spot. Cards connected by arrows *from* the card (its children, and theirs) move with it and keep their arrangement. Dragging works as well.
 - Drop a card in a zone and the zone grows to contain it. Zones never shrink or move.
 - Give a zone a colour and its cards take it. Done (green) and due-date colours win over the zone's; a colour you set on a card by hand is kept, unless it matches a zone colour.
 
