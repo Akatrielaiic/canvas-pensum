@@ -38,12 +38,12 @@ interface LiveCanvas {
 	zoomToBbox?(box: { minX: number; minY: number; maxX: number; maxY: number }): void;
 }
 
-/** A small temple with a tick: the Pensatorium as a place. Drawn on a 24-unit grid, scaled to Obsidian's 100. */
+/** A small temple with a tick: the Pensatorium as a place. Drawn on a 24-unit grid, edge to edge like Obsidian's own icons, scaled to its 100. */
 const PENSATORIUM_ICON = "pensatorium";
 const PENSATORIUM_SVG =
 	'<g transform="scale(4.1667)" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-	'<path d="M3 9.5 12 4l9 5.5"/><path d="M4.5 9.5h15"/><path d="M6.5 12.5v5.5M17.5 12.5v5.5"/>' +
-	'<path d="M3.5 20.5h17"/><path d="m9.5 15.2 1.8 1.8 3.4-3.6"/></g>';
+	'<path d="M1.2 8.95 12 2.35l10.8 6.6"/><path d="M3 8.95h18"/><path d="M5.4 12.55v6.6M18.6 12.55v6.6"/>' +
+	'<path d="M1.8 22.15h20.4"/><path d="m9 15.8 2.16 2.16 4.08-4.32"/></g>';
 
 interface LiveNode {
 	isEditing?: boolean;
