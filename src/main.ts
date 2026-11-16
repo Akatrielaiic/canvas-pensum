@@ -9,6 +9,7 @@ import {
 	Setting,
 	SuggestModal,
 	TFile,
+	addIcon,
 	debounce,
 	moment,
 	normalizePath,
@@ -31,6 +32,13 @@ interface LiveCanvas {
 	isDragging?: boolean;
 	zoomToBbox?(box: { minX: number; minY: number; maxX: number; maxY: number }): void;
 }
+
+/** A small temple with a tick: the Pensatorium as a place. Drawn on a 24-unit grid, scaled to Obsidian's 100. */
+const PENSATORIUM_ICON = "pensatorium";
+const PENSATORIUM_SVG =
+	'<g transform="scale(4.1667)" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+	'<path d="M3 9.5 12 4l9 5.5"/><path d="M4.5 9.5h15"/><path d="M6.5 12.5v5.5M17.5 12.5v5.5"/>' +
+	'<path d="M3.5 20.5h17"/><path d="m9.5 15.2 1.8 1.8 3.4-3.6"/></g>';
 
 interface LiveNode {
 	isEditing?: boolean;
@@ -90,8 +98,9 @@ export default class CanvasPensumPlugin extends Plugin {
 		this.settings = { ...DEFAULT_SETTINGS, ...(await this.loadData()) };
 		this.addSettingTab(new CanvasPensumSettingTab(this.app, this));
 
-		this.addRibbonIcon("layout-dashboard", "Open Pensatorium", () => this.openDesk());
-		this.addCommand({ id: "open-desk", name: "Open Pensatorium", callback: () => this.openDesk() });
+		addIcon(PENSATORIUM_ICON, PENSATORIUM_SVG);
+		this.addRibbonIcon(PENSATORIUM_ICON, "Open Pensatorium", () => this.openDesk());
+		this.addCommand({ id: "open-desk", name: "Open Pensatorium", icon: PENSATORIUM_ICON, callback: () => this.openDesk() });
 		this.addCommand({ id: "sync-desk", name: "Sync Pensatorium now", callback: () => this.sync(true) });
 		this.addCommand({ id: "add-task", name: "Add task", callback: () => this.addTask() });
 		this.addCommand({ id: "new-zone", name: "New zone", callback: () => this.newZone() });
