@@ -12,6 +12,8 @@ export interface CanvasPensumSettings {
 	inheritZoneColor: boolean;
 	colorByDue: boolean;
 	captureNote: string;
+	captureDate: boolean;
+	captureDateFormat: string;
 	writeZones: boolean;
 	zoneProperty: string;
 	cardWidth: number;
@@ -29,6 +31,8 @@ export const DEFAULT_SETTINGS: CanvasPensumSettings = {
 	inheritZoneColor: true,
 	colorByDue: true,
 	captureNote: "Inbox.md",
+	captureDate: true,
+	captureDateFormat: "YYYY-MM-DD",
 	writeZones: false,
 	zoneProperty: "pensum-zone",
 	cardWidth: 400,
@@ -106,10 +110,30 @@ export class CanvasPensumSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Capture note")
-			.setDesc("Where the “Add task” command writes new tasks. Created on first use.")
+			.setDesc("Where the plain “Add task” command writes new tasks. Created on first use. “Add task to a note” asks for the note each time.")
 			.addText((t) =>
 				t.setValue(s.captureNote).onChange(async (v) => {
 					s.captureNote = v.trim() || DEFAULT_SETTINGS.captureNote;
+					await save();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Link new tasks to the day")
+			.setDesc("“Add task to a note” starts the task with a link to today, like [[2026-11-16]], so it shows up in that day's note.")
+			.addToggle((t) =>
+				t.setValue(s.captureDate).onChange(async (v) => {
+					s.captureDate = v;
+					await save();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Day link format")
+			.setDesc("The name of your daily notes, as a date format. YYYY-MM-DD gives 2026-11-16.")
+			.addText((t) =>
+				t.setValue(s.captureDateFormat).onChange(async (v) => {
+					s.captureDateFormat = v.trim() || DEFAULT_SETTINGS.captureDateFormat;
 					await save();
 				}),
 			);

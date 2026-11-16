@@ -14,6 +14,12 @@ Every note that has open tasks (`- [ ]`) lands as a card on one infinite canvas,
 - When a note has no open tasks left, its card turns green and moves to the **Done** zone, along with the cards its arrows lead to (or stays put, or is removed: your choice). Delete cards from Done whenever you like; the notes are untouched, and a note only comes back if it gets a new open task.
 - Apart from that, the plugin never moves or deletes a card you placed, and never touches cards you added by hand.
 
+### Adding tasks
+
+- **Add task to a note** (**Cmd/Ctrl+Shift+A**, or the button among the canvas controls on the right of the Pensatorium) asks which note, with search. Type a name that doesn't exist and press Enter to create the note. With one card selected, its note is the first suggestion. The task goes at the top of the note, below the properties and the title, and starts with a link to today (`- [ ] [[2026-11-16]] Call back`); the link and its format can be changed or turned off in the settings.
+- **Add task** writes to one fixed capture note (`Inbox.md` by default), for things to sort later.
+- Or write `- [ ]` straight in a card: cards are the notes themselves.
+
 ### With the Tasks plugin
 
 If the [Tasks](https://github.com/obsidian-tasks-group/obsidian-tasks) plugin is installed, the Pensatorium uses it automatically; there is nothing to configure.

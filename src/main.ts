@@ -5,6 +5,7 @@ import {
 	type Menu,
 	Modal,
 	Notice,
+	Platform,
 	Plugin,
 	Setting,
 	SuggestModal,
@@ -14,8 +15,11 @@ import {
 	moment,
 	normalizePath,
 	prepareFuzzySearch,
+	setIcon,
+	setTooltip,
 } from "obsidian";
 import { type CanvasData, type CanvasNode, parseCanvas, serializeCanvas } from "./canvas.ts";
+import { insertAtTop, notePath, withLink } from "./capture.ts";
 import { scanVault } from "./scanner.ts";
 import { DEFAULT_SETTINGS, type CanvasPensumSettings, CanvasPensumSettingTab } from "./settings.ts";
 import { DONE_ID, INBOX_ID, type Layout, type SyncResult, addZone, moveToZone, syncDesk } from "./sync.ts";
@@ -103,6 +107,14 @@ export default class CanvasPensumPlugin extends Plugin {
 		this.addCommand({ id: "open-desk", name: "Open Pensatorium", icon: PENSATORIUM_ICON, callback: () => this.openDesk() });
 		this.addCommand({ id: "sync-desk", name: "Sync Pensatorium now", callback: () => this.sync(true) });
 		this.addCommand({ id: "add-task", name: "Add task", callback: () => this.addTask() });
+		this.addCommand({
+			id: "add-task-to-note",
+			name: "Add task to a note",
+			icon: "list-plus",
+			// A for "add". Free in Obsidian, Canvas and Canvas Arbor; can be changed in Settings → Hotkeys.
+			hotkeys: [{ modifiers: ["Mod", "Shift"], key: "a" }],
+			callback: () => this.addTaskToNote(),
+		});
 		this.addCommand({ id: "new-zone", name: "New zone", callback: () => this.newZone() });
 		this.addCommand({
 			id: "move-to-zone",
@@ -134,8 +146,13 @@ export default class CanvasPensumPlugin extends Plugin {
 		);
 
 		const autoSync = debounce(() => this.settings.autoSync && this.sync(false), 2000, true);
+		// A button for it among the canvas controls, on the Pensatorium only.
+		this.registerEvent(this.app.workspace.on("layout-change", () => this.addCanvasButton()));
+		this.register(() => activeDocument.querySelectorAll(".pensum-controls").forEach((el) => el.remove()));
+
 		// Wait for the layout: before that, the cache fires "changed" for every file in the vault.
 		this.app.workspace.onLayoutReady(() => {
+			this.addCanvasButton();
 			this.registerEvent(this.app.metadataCache.on("changed", autoSync));
 			this.registerEvent(this.app.vault.on("delete", autoSync));
 			// The Tasks plugin re-indexes slightly after the metadata cache; follow its own signal too.
@@ -330,11 +347,79 @@ export default class CanvasPensumPlugin extends Plugin {
 		return desk;
 	}
 
+	private addCanvasButton() {
+		const path = this.deskPath();
+		for (const leaf of this.app.workspace.getLeavesOfType("canvas")) {
+			const view = leaf.view as unknown as { file?: TFile; containerEl?: HTMLElement };
+			const controls = view.containerEl?.querySelector(".canvas-controls");
+			if (!controls) continue;
+			const existing = controls.querySelector(".pensum-controls");
+			if (view.file?.path !== path) {
+				existing?.remove(); // the tab now shows another canvas
+				continue;
+			}
+			if (existing) continue;
+			const group = controls.createDiv({ cls: "canvas-control-group mod-raised pensum-controls" });
+			const item = group.createDiv({ cls: "canvas-control-item" });
+			setIcon(item, "list-plus");
+			setTooltip(item, `Add task to a note (${Platform.isMacOS ? "⇧⌘A" : "Ctrl+Shift+A"})`, { placement: "left" });
+			item.addEventListener("click", () => this.addTaskToNote());
+		}
+	}
+
+	/** The note of the one selected card, if any: the likeliest target for a new task. */
+	private selectedNote(): TFile | null {
+		const live = this.liveCanvas(this.deskPath());
+		const ids = this.selectedIds();
+		if (!live || ids.length !== 1) return null;
+		const node = live.getData().nodes.find((n) => n.id === ids[0]);
+		const file = node?.type === "file" && node.file ? this.app.vault.getAbstractFileByPath(node.file) : null;
+		return file instanceof TFile && file.extension === "md" ? file : null;
+	}
+
+	private taskLine(): Promise<string> {
+		const tasksApi = getTasksPlugin(this.app)?.apiV1;
+		return tasksApi ? tasksApi.createTaskLineModal() : promptTaskLine(this.app);
+	}
+
+	/** Pick a note (or name a new one), write the task: it goes at the top of that note. */
+	private addTaskToNote() {
+		new NotePicker(this.app, this.selectedNote(), async (pick) => {
+			try {
+				let line = await this.taskLine();
+				if (!line?.trim()) return;
+				if (this.settings.captureDate) {
+					line = withLink(line, `[[${moment().format(this.settings.captureDateFormat || "YYYY-MM-DD")}]]`);
+				}
+				let file: TFile;
+				if (typeof pick === "string") {
+					const path = normalizePath(notePath(pick, this.app.fileManager.getNewFileParent("").path));
+					if (!path) return;
+					const existing = this.app.vault.getAbstractFileByPath(path);
+					if (existing instanceof TFile) {
+						file = existing;
+						await this.app.vault.process(file, (text) => insertAtTop(text, line));
+					} else {
+						const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+						if (folder && !this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
+						file = await this.app.vault.create(path, line + "\n");
+					}
+				} else {
+					file = pick;
+					await this.app.vault.process(file, (text) => insertAtTop(text, line));
+				}
+				new Notice(`Task added to ${file.basename}`);
+			} catch (e) {
+				console.error("Canvas Pensum", e);
+				new Notice("Canvas Pensum: could not add the task (see console).");
+			}
+		}).open();
+	}
+
 	/** Quick capture: Tasks' own editor when available, a one-line prompt otherwise. */
 	private async addTask() {
 		try {
-			const tasksApi = getTasksPlugin(this.app)?.apiV1;
-			const line = tasksApi ? await tasksApi.createTaskLineModal() : await promptTaskLine(this.app);
+			const line = await this.taskLine();
 			if (!line?.trim()) return;
 
 			const path = normalizePath(this.settings.captureNote.replace(/(\.md)?$/, ".md"));
@@ -390,6 +475,48 @@ function promptTaskLine(app: App): Promise<string> {
 		modal.onClose = () => resolve(submitted && text.trim() ? `- [ ] ${text.trim()}` : "");
 		modal.open();
 	});
+}
+
+/** Pick a note, or type a new name and press Enter to create it. A string means "create". */
+class NotePicker extends SuggestModal<TFile | string> {
+	constructor(app: App, private preferred: TFile | null, private onPick: (note: TFile | string) => void) {
+		super(app);
+		this.setPlaceholder("Add task to… pick a note, or type a new name");
+		this.emptyStateText = "Type a name to create a note";
+	}
+	getSuggestions(query: string): (TFile | string)[] {
+		const name = query.trim();
+		const files = this.app.vault.getMarkdownFiles();
+		if (!name) {
+			const recent = this.app.workspace
+				.getLastOpenFiles()
+				.map((p) => this.app.vault.getAbstractFileByPath(p))
+				.filter((f): f is TFile => f instanceof TFile && f.extension === "md" && f !== this.preferred);
+			return [...(this.preferred ? [this.preferred] : []), ...recent].slice(0, 20);
+		}
+		const search = prepareFuzzySearch(name);
+		// A match on the note's name beats one that needs its folder.
+		const matches = files
+			.map((file) => ({ file, score: search(file.basename)?.score ?? (search(file.path)?.score ?? -Infinity) - 10 }))
+			.filter((m) => m.score > -Infinity)
+			.sort((a, b) => b.score - a.score)
+			.slice(0, 30)
+			.map((m) => m.file);
+		const exists = files.some((f) => f.basename.toLowerCase() === name.toLowerCase());
+		return exists ? matches : [...matches, name];
+	}
+	renderSuggestion(item: TFile | string, el: HTMLElement): void {
+		if (typeof item === "string") {
+			el.setText(`Create note “${item}”`);
+			return;
+		}
+		el.createDiv({ text: item.basename });
+		const folder = item.parent?.path;
+		if (folder && folder !== "/") el.createDiv({ text: folder, cls: "suggestion-note" });
+	}
+	onChooseSuggestion(item: TFile | string): void {
+		this.onPick(item);
+	}
 }
 
 /** Pick an existing zone, or type a new name and press Enter to create it. A string means "create". */

@@ -22,6 +22,7 @@ Una scrivania infinita dove compaiono da sole tutte le note con cose da fare, e 
 |---|---|---|
 | `src/scanner.ts` | vault → elenco note con task aperti/chiusi | sì |
 | `src/zone-engine.ts` | zone: piazzare, spostare, riordinare. Pura, copiata identica in Canvas Arbor | no |
+| `src/capture.ts` | dove va un task catturato dentro una nota. Pura | no |
 | `src/sync.ts` | (canvas, note) → canvas aggiornato. Funzione pura | no |
 | `src/zones.ts` | canvas → zona di ogni nota. Funzione pura | no |
 | `src/tasks-plugin.ts` | ponte verso il plugin Tasks (opzionale) | sì |
@@ -50,6 +51,7 @@ Ordine indicativo; ogni voce va validata con l'uso reale.
 - **v0.4 (fatto)**: zona creata al volo dal selettore; le card figlie (frecce uscenti) seguono la card spostata.
 - **v0.5 (fatto)**: zone ordinate (figli inclusi, niente sovrapposizioni, zone vicine spostate); aggiornamenti nodo per nodo che non interrompono la scrittura.
 - **v0.6 (fatto)**: zone che si restringono; motore delle zone in `src/zone-engine.ts`, condiviso con Canvas Arbor (Pensum gestisce il Pensatorium, Arbor gli altri canvas).
+- **v0.7 (fatto)**: "Add task to a note" con ricerca note, creazione al volo, inserimento in cima e link al giorno; pulsante tra i controlli del canvas.
 - **Disposizione iniziale**: al primo riempimento, raggruppare per cartella o tag invece di un'unica Inbox. Comando "riordina Inbox".
 - **Card per sezione**: nodo `file` con `subpath` (`#Titolo`) per mostrare solo la sezione con i task, card più compatte.
 - **Zone attive**: la zona scrive anche altre proprietà (es. gruppo "Oggi" → `due: <oggi>`), e viceversa una proprietà cambiata altrove sposta la card.
