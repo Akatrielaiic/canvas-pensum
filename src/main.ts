@@ -1,6 +1,7 @@
 import {
 	type App,
 	type EventRef,
+	ItemView,
 	type Menu,
 	Modal,
 	Notice,
@@ -99,12 +100,9 @@ export default class CanvasPensumPlugin extends Plugin {
 			name: "Move selected cards to zone",
 			// M for "move". Free in Obsidian, Canvas and Canvas Arbor; can be changed in Settings → Hotkeys.
 			hotkeys: [{ modifiers: ["Mod", "Shift"], key: "m" }],
-			checkCallback: (checking) => {
-				const ids = this.selectedIds();
-				if (!ids.length) return false;
-				if (!checking) this.moveToZone(ids);
-				return true;
-			},
+			// Obsidian runs only the first command bound to a key, even when it does not apply. Canvas
+			// Arbor binds the same key on every other canvas, so when pressed there we hand over to it.
+			checkCallback: (checking) => this.zoneCommand(checking) || (!checking && !!this.arbor()?.zoneCommand?.(false)),
 		});
 
 		const events = this.app.workspace as unknown as CanvasMenuEvents;
@@ -152,6 +150,22 @@ export default class CanvasPensumPlugin extends Plugin {
 	 */
 	ownsCanvas(path: string): boolean {
 		return path === this.deskPath();
+	}
+
+	/** "Move selected cards to zone" on the Pensatorium. Public so Canvas Arbor can hand the key over. */
+	zoneCommand(checking: boolean): boolean {
+		// Only when the Pensatorium is the canvas in front, not merely open in another tab.
+		const active = this.app.workspace.getActiveViewOfType(ItemView) as (ItemView & { file?: TFile }) | null;
+		if (active?.file?.path !== this.deskPath()) return false;
+		const ids = this.selectedIds();
+		if (!ids.length) return false;
+		if (!checking) this.moveToZone(ids);
+		return true;
+	}
+
+	private arbor(): { zoneCommand?(checking: boolean): boolean } | undefined {
+		type Plugins = { plugins?: { plugins?: Record<string, { zoneCommand?(checking: boolean): boolean } | undefined> } };
+		return (this.app as unknown as Plugins).plugins?.plugins?.["canvas-arbor"];
 	}
 
 	async saveSettings() {
