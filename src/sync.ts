@@ -23,11 +23,15 @@ export interface TaskNote {
 	due?: string | null;
 }
 
-export interface SyncOptions {
+/** Grid used when the plugin places a card. */
+export interface Layout {
 	cardWidth: number;
 	cardHeight: number;
 	gap: number;
 	columns: number;
+}
+
+export interface SyncOptions extends Layout {
 	inboxLabel: string;
 	doneLabel?: string;
 	/** What happens to a card when its note has no open tasks left. */
@@ -68,10 +72,82 @@ const intersects = (a: Rect, b: Rect) =>
 const randomId = () =>
 	MANAGED_PREFIX + Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
 
+const clone = (data: CanvasData): CanvasData => {
+	const copy: CanvasData = JSON.parse(JSON.stringify(data));
+	copy.nodes ??= [];
+	copy.edges ??= [];
+	return copy;
+};
+
+/** Puts `node` in the first free grid slot of `group`, growing the group if needed. */
+export function placeIn(data: CanvasData, node: CanvasNode, group: CanvasNode, layout: Layout): void {
+	const obstacles = data.nodes.filter((n) => n.type !== "group" && n !== node);
+	for (let slot = 0; ; slot++) {
+		const rect: Rect = {
+			x: group.x + layout.gap + (slot % layout.columns) * (layout.cardWidth + layout.gap),
+			y: group.y + layout.gap + Math.floor(slot / layout.columns) * (layout.cardHeight + layout.gap),
+			width: node.width,
+			height: node.height,
+		};
+		if (obstacles.some((o) => intersects(o, rect))) continue;
+		node.x = rect.x;
+		node.y = rect.y;
+		break;
+	}
+	group.width = Math.max(group.width, node.x + node.width + layout.gap - group.x);
+	group.height = Math.max(group.height, node.y + node.height + layout.gap - group.y);
+}
+
+/**
+ * Adds an empty zone in line with the Inbox, in the first free spot to its right.
+ * The zone is the user's from then on: its id carries no plugin prefix.
+ */
+export function addZone(
+	input: CanvasData,
+	zone: { label: string; color?: string },
+	layout: Layout,
+	newId: () => string = () => randomId().slice(MANAGED_PREFIX.length),
+): { data: CanvasData; zone: CanvasNode } {
+	const data = clone(input);
+	const anchor = data.nodes.find((n) => n.id === INBOX_ID && n.type === "group");
+	const all = data.nodes;
+	const spacing = layout.gap * 2;
+	const group: CanvasNode = {
+		id: newId(),
+		type: "group",
+		label: zone.label,
+		x: anchor ? anchor.x + anchor.width + spacing : all.length ? Math.min(...all.map((n) => n.x)) : 0,
+		y: anchor ? anchor.y : all.length ? Math.max(...all.map((n) => n.y + n.height)) + spacing : 0,
+		width: 2 * (layout.cardWidth + layout.gap) + layout.gap,
+		height: layout.cardHeight + layout.gap * 2,
+	};
+	if (zone.color) group.color = zone.color;
+	// Slide right past anything in the way, keeping a margin.
+	for (let blocker: CanvasNode | undefined; ; group.x = blocker.x + blocker.width + spacing) {
+		const margin: Rect = { x: group.x - layout.gap, y: group.y, width: group.width + spacing, height: group.height };
+		blocker = all.find((n) => intersects(n, margin));
+		if (!blocker) break;
+	}
+	data.nodes.unshift(group);
+	return { data, zone: group };
+}
+
+/** Moves the given cards into a zone, each to the first free slot. Null if there is nothing to do. */
+export function moveToZone(input: CanvasData, nodeIds: string[], zoneId: string, layout: Layout): CanvasData | null {
+	const data = clone(input);
+	const zone = data.nodes.find((n) => n.id === zoneId && n.type === "group");
+	if (!zone) return null;
+	const ids = new Set(nodeIds);
+	const cards = data.nodes
+		.filter((n) => ids.has(n.id) && n.type !== "group" && !centreInside(n, zone))
+		.sort((a, b) => a.y - b.y || a.x - b.x);
+	if (!cards.length) return null;
+	for (const card of cards) placeIn(data, card, zone, layout);
+	return data;
+}
+
 export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions): SyncResult {
-	const data: CanvasData = JSON.parse(JSON.stringify(input));
-	data.nodes ??= [];
-	data.edges ??= [];
+	const data = clone(input);
 	const before = JSON.stringify(data);
 	const result: SyncResult = { data, changed: false, added: [], completed: [], reopened: [], removed: [] };
 	const exists = opts.exists ?? (() => true);
@@ -82,24 +158,7 @@ export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions
 			file: string;
 		})[];
 
-	/** Puts `node` in the first free grid slot of `group`, growing the group if needed. */
-	const place = (node: CanvasNode, group: CanvasNode) => {
-		const obstacles = data.nodes.filter((n) => n.type !== "group" && n !== node);
-		for (let slot = 0; ; slot++) {
-			const rect: Rect = {
-				x: group.x + opts.gap + (slot % opts.columns) * (opts.cardWidth + opts.gap),
-				y: group.y + opts.gap + Math.floor(slot / opts.columns) * (opts.cardHeight + opts.gap),
-				width: node.width,
-				height: node.height,
-			};
-			if (obstacles.some((o) => intersects(o, rect))) continue;
-			node.x = rect.x;
-			node.y = rect.y;
-			break;
-		}
-		group.width = Math.max(group.width, node.x + node.width + opts.gap - group.x);
-		group.height = Math.max(group.height, node.y + node.height + opts.gap - group.y);
-	};
+	const place = (node: CanvasNode, group: CanvasNode) => placeIn(data, node, group, opts);
 
 	const ensureGroup = (id: string, label: string, side: "below" | "right", color?: string): CanvasNode => {
 		const existing = data.nodes.find((n) => n.id === id && n.type === "group");

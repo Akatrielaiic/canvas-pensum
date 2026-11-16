@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { CanvasData } from "../src/canvas.ts";
-import { DONE_ID, INBOX_ID, type SyncOptions, syncDesk } from "../src/sync.ts";
+import { DONE_ID, INBOX_ID, type SyncOptions, addZone, moveToZone, syncDesk } from "../src/sync.ts";
 import { centreInside, computeZones } from "../src/zones.ts";
 
 let n = 0;
@@ -182,4 +182,41 @@ test("zones grow around cards dropped in them, and cards inherit the zone colour
 	b.x = 3050;
 	b.y = 50;
 	assert.equal(syncDesk(out.data, [note("a.md"), note("b.md")], zoned).data.nodes.find((x) => x.file === "b.md")!.color, "6");
+});
+
+test("new zones line up to the right of the Inbox without overlapping anything", () => {
+	const first = syncDesk(empty(), [note("a.md"), note("b.md"), note("c.md")], opts);
+	const one = addZone(first.data, { label: "Today", color: "5" }, opts, () => "z1");
+	const two = addZone(one.data, { label: "Waiting" }, opts, () => "z2");
+	const inbox = two.data.nodes.find((x) => x.id === INBOX_ID)!;
+	const [z1, z2] = ["z1", "z2"].map((id) => two.data.nodes.find((x) => x.id === id)!);
+	assert.equal(z1.color, "5");
+	assert.equal(z2.color, undefined);
+	assert.deepEqual([z1.y, z2.y], [inbox.y, inbox.y], "same row as the Inbox");
+	assert.ok(z1.x >= inbox.x + inbox.width && z2.x >= z1.x + z1.width, "left to right");
+	for (const z of [z1, z2]) for (const n of two.data.nodes) if (n !== z) assert.ok(!overlap(z, n), "no overlap");
+	assert.equal(syncDesk(two.data, [note("a.md"), note("b.md"), note("c.md")], opts).changed, false);
+	assert.equal(addZone(empty(), { label: "Solo" }, opts).zone.x, 0, "works on an empty canvas");
+});
+
+test("move to zone places cards in free slots and grows the zone", () => {
+	const notes = [note("a.md"), note("b.md"), note("c.md")];
+	const first = syncDesk(empty(), notes, opts);
+	const { data, zone } = addZone(first.data, { label: "Today", color: "5" }, { ...opts, columns: 1 }, () => "z");
+	const ids = data.nodes.filter((x) => x.type === "file").map((x) => x.id);
+	const moved = moveToZone(data, [...ids, "z", INBOX_ID], "z", { ...opts, columns: 1 })!;
+	const z = moved.nodes.find((x) => x.id === "z")!;
+	const cards = moved.nodes.filter((x) => x.type === "file");
+	assert.deepEqual([z.x, z.y], [zone.x, zone.y]);
+	for (const c of cards) {
+		assert.ok(centreInside(c, z));
+		assert.ok(c.y + c.height <= z.y + z.height && c.x + c.width <= z.x + z.width, "zone grew to fit");
+	}
+	for (let i = 0; i < cards.length; i++)
+		for (let j = i + 1; j < cards.length; j++) assert.ok(!overlap(cards[i], cards[j]));
+	assert.equal(moveToZone(moved, ids, "z", opts), null, "already there: nothing to do");
+	assert.equal(moveToZone(moved, ids, "missing", opts), null);
+	// The next sync gives the cards the zone's colour.
+	const synced = syncDesk(moved, notes, { ...opts, inheritZoneColor: true });
+	assert.ok(synced.data.nodes.filter((x) => x.type === "file").every((x) => x.color === "5"));
 });

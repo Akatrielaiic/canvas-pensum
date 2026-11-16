@@ -1,8 +1,21 @@
-import { type App, type EventRef, Modal, Notice, Plugin, Setting, TFile, debounce, moment, normalizePath } from "obsidian";
-import { type CanvasData, parseCanvas, serializeCanvas } from "./canvas.ts";
+import {
+	type App,
+	type EventRef,
+	FuzzySuggestModal,
+	type Menu,
+	Modal,
+	Notice,
+	Plugin,
+	Setting,
+	TFile,
+	debounce,
+	moment,
+	normalizePath,
+} from "obsidian";
+import { type CanvasData, type CanvasNode, parseCanvas, serializeCanvas } from "./canvas.ts";
 import { scanVault } from "./scanner.ts";
 import { DEFAULT_SETTINGS, type CanvasPensumSettings, CanvasPensumSettingTab } from "./settings.ts";
-import { type SyncResult, syncDesk } from "./sync.ts";
+import { DONE_ID, type Layout, type SyncResult, addZone, moveToZone, syncDesk } from "./sync.ts";
 import { TASKS_CACHE_EVENT, getTasksPlugin } from "./tasks-plugin.ts";
 import { computeZones } from "./zones.ts";
 
@@ -11,7 +24,16 @@ interface LiveCanvas {
 	getData(): CanvasData;
 	setData(data: CanvasData): void;
 	requestSave(): void;
+	selection?: Set<{ id: string }>;
+	zoomToBbox?(box: { minX: number; minY: number; maxX: number; maxY: number }): void;
 }
+
+/** Undocumented workspace events fired by the canvas for its context menus. */
+type CanvasMenuEvents = {
+	on(name: "canvas:node-menu", cb: (menu: Menu, node: { id: string; canvas?: unknown }) => void): EventRef;
+	on(name: "canvas:selection-menu", cb: (menu: Menu, canvas: unknown) => void): EventRef;
+	on(name: string, cb: () => void): EventRef;
+};
 
 export default class CanvasPensumPlugin extends Plugin {
 	settings: CanvasPensumSettings = DEFAULT_SETTINGS;
@@ -24,6 +46,36 @@ export default class CanvasPensumPlugin extends Plugin {
 		this.addCommand({ id: "open-desk", name: "Open Pensatorium", callback: () => this.openDesk() });
 		this.addCommand({ id: "sync-desk", name: "Sync Pensatorium now", callback: () => this.sync(true) });
 		this.addCommand({ id: "add-task", name: "Add task", callback: () => this.addTask() });
+		this.addCommand({ id: "new-zone", name: "New zone", callback: () => this.newZone() });
+		this.addCommand({
+			id: "move-to-zone",
+			name: "Move selected cards to zone",
+			checkCallback: (checking) => {
+				const ids = this.selectedIds();
+				if (!ids.length) return false;
+				if (!checking) this.moveToZone(ids);
+				return true;
+			},
+		});
+
+		const events = this.app.workspace as unknown as CanvasMenuEvents;
+		const addMenuItem = (menu: Menu, ids: string[]) =>
+			menu.addItem((item) =>
+				item
+					.setTitle("Move to zone…")
+					.setIcon("folder-input")
+					.onClick(() => this.moveToZone(ids)),
+			);
+		this.registerEvent(
+			events.on("canvas:node-menu", (menu, node) => {
+				if (node?.id && node.canvas === this.liveCanvas(this.deskPath())) addMenuItem(menu, [node.id]);
+			}),
+		);
+		this.registerEvent(
+			events.on("canvas:selection-menu", (menu, canvas) => {
+				if (canvas === this.liveCanvas(this.deskPath())) addMenuItem(menu, this.selectedIds());
+			}),
+		);
 
 		const autoSync = debounce(() => this.settings.autoSync && this.sync(false), 2000, true);
 		// The desk itself changed (a card was dragged, a zone recoloured): re-apply zone rules.
@@ -35,7 +87,7 @@ export default class CanvasPensumPlugin extends Plugin {
 			this.registerEvent(this.app.vault.on("delete", autoSync));
 			// The Tasks plugin re-indexes slightly after the metadata cache; follow its own signal too.
 			this.registerEvent(
-				(this.app.workspace as unknown as { on(name: string, cb: () => void): EventRef }).on(TASKS_CACHE_EVENT, autoSync),
+				events.on(TASKS_CACHE_EVENT, autoSync),
 			);
 			// Due-date colours change at midnight even if no file does.
 			this.registerInterval(window.setInterval(autoSync, 60 * 60 * 1000));
@@ -86,6 +138,79 @@ export default class CanvasPensumPlugin extends Plugin {
 		return null;
 	}
 
+	/** Applies `edit` to the desk; `edit` returns null to leave it untouched. */
+	private async editDesk(desk: TFile, edit: (data: CanvasData) => CanvasData | null): Promise<void> {
+		const live = this.liveCanvas(desk.path);
+		if (live) {
+			const next = edit(live.getData());
+			if (next) {
+				live.setData(next);
+				live.requestSave();
+			}
+		} else {
+			await this.app.vault.process(desk, (raw) => {
+				const next = edit(parseCanvas(raw));
+				return next ? serializeCanvas(next) : raw;
+			});
+		}
+	}
+
+	private layout(): Layout {
+		const { cardWidth, cardHeight, columns } = this.settings;
+		return { cardWidth, cardHeight, columns, gap: 40 };
+	}
+
+	private selectedIds(): string[] {
+		const selection = this.liveCanvas(this.deskPath())?.selection;
+		return selection ? [...selection].map((n) => n.id).filter(Boolean) : [];
+	}
+
+	private async newZone() {
+		try {
+			const zone = await promptZone(this.app);
+			if (!zone) return;
+			const desk = await this.getDesk(true);
+			if (!desk) return;
+			let created: CanvasNode | undefined;
+			await this.editDesk(desk, (data) => {
+				const result = addZone(data, zone, this.layout());
+				created = result.zone;
+				return result.data;
+			});
+			if (created) {
+				const { x, y, width, height } = created;
+				this.liveCanvas(desk.path)?.zoomToBbox?.({ minX: x, minY: y, maxX: x + width, maxY: y + height });
+			}
+			new Notice(`Zone “${zone.label}” added.`);
+		} catch (e) {
+			console.error("Canvas Pensum", e);
+			new Notice("Canvas Pensum: could not add the zone (see console).");
+		}
+	}
+
+	private moveToZone(ids: string[]) {
+		const live = this.liveCanvas(this.deskPath());
+		if (!live || !ids.length) return;
+		const zones = live
+			.getData()
+			.nodes.filter((n) => n.type === "group" && n.id !== DONE_ID && typeof n.label === "string" && n.label.trim());
+		if (!zones.length) {
+			new Notice("No zones yet. Create one with “New zone”.");
+			return;
+		}
+		new ZonePicker(this.app, zones, async (zone) => {
+			try {
+				const desk = await this.getDesk(false);
+				if (!desk) return;
+				await this.editDesk(desk, (data) => moveToZone(data, ids, zone.id, this.layout()));
+				await this.sync(false); // zone colour, zone property
+			} catch (e) {
+				console.error("Canvas Pensum", e);
+				new Notice("Canvas Pensum: could not move the cards (see console).");
+			}
+		}).open();
+	}
+
 	/** `manual` = triggered by the user: creates the desk if missing and reports what changed. */
 	async sync(manual: boolean): Promise<TFile | null> {
 		const desk = await this.getDesk(manual);
@@ -99,10 +224,7 @@ export default class CanvasPensumPlugin extends Plugin {
 		}
 		const run = (data: CanvasData) =>
 			syncDesk(data, notes, {
-				cardWidth: this.settings.cardWidth,
-				cardHeight: this.settings.cardHeight,
-				columns: this.settings.columns,
-				gap: 40,
+				...this.layout(),
 				inboxLabel: "Inbox",
 				doneLabel: "Done",
 				growZones: this.settings.growZones,
@@ -114,19 +236,10 @@ export default class CanvasPensumPlugin extends Plugin {
 			});
 
 		let result: SyncResult | undefined;
-		const live = this.liveCanvas(desk.path);
-		if (live) {
-			result = run(live.getData());
-			if (result.changed) {
-				live.setData(result.data);
-				live.requestSave();
-			}
-		} else {
-			await this.app.vault.process(desk, (raw) => {
-				result = run(parseCanvas(raw));
-				return result.changed ? serializeCanvas(result.data) : raw;
-			});
-		}
+		await this.editDesk(desk, (data) => {
+			result = run(data);
+			return result.changed ? result.data : null;
+		});
 		if (!result) return desk;
 
 		if (this.settings.writeZones) await this.writeZones(result.data);
@@ -199,6 +312,61 @@ function promptTaskLine(app: App): Promise<string> {
 		});
 		new Setting(modal.contentEl).addButton((b) => b.setButtonText("Add").setCta().onClick(submit));
 		modal.onClose = () => resolve(submitted && text.trim() ? `- [ ] ${text.trim()}` : "");
+		modal.open();
+	});
+}
+
+class ZonePicker extends FuzzySuggestModal<CanvasNode> {
+	constructor(app: App, private zones: CanvasNode[], private onPick: (zone: CanvasNode) => void) {
+		super(app);
+		this.setPlaceholder("Move to zone…");
+	}
+	getItems(): CanvasNode[] {
+		return this.zones;
+	}
+	getItemText(zone: CanvasNode): string {
+		return (zone.label as string).trim();
+	}
+	onChooseItem(zone: CanvasNode): void {
+		this.onPick(zone);
+	}
+}
+
+const ZONE_COLOURS: Record<string, string> = {
+	"": "No colour",
+	"1": "Red",
+	"2": "Orange",
+	"3": "Yellow",
+	"4": "Green",
+	"5": "Cyan",
+	"6": "Purple",
+};
+
+function promptZone(app: App): Promise<{ label: string; color?: string } | null> {
+	return new Promise((resolve) => {
+		const modal = new Modal(app);
+		let label = "";
+		let color = "";
+		let submitted = false;
+		const submit = () => {
+			submitted = true;
+			modal.close();
+		};
+		modal.titleEl.setText("New zone");
+		new Setting(modal.contentEl).setName("Name").addText((t) => {
+			t.setPlaceholder("Today").onChange((v) => (label = v));
+			t.inputEl.addEventListener("keydown", (e) => {
+				if (e.key === "Enter" && !e.isComposing) submit();
+			});
+			window.setTimeout(() => t.inputEl.focus());
+		});
+		new Setting(modal.contentEl)
+			.setName("Colour")
+			.setDesc("Cards in the zone take its colour. Red, orange and green are also used for due dates and done.")
+			.addDropdown((d) => d.addOptions(ZONE_COLOURS).onChange((v) => (color = v)));
+		new Setting(modal.contentEl).addButton((b) => b.setButtonText("Add zone").setCta().onClick(submit));
+		modal.onClose = () =>
+			resolve(submitted && label.trim() ? { label: label.trim(), color: color || undefined } : null);
 		modal.open();
 	});
 }

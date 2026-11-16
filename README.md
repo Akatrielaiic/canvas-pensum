@@ -26,8 +26,10 @@ Without Tasks, the Pensatorium works on plain checkboxes and **Add task** is a o
 
 ### Zones
 
-Draw groups on the Pensatorium and name them (`Today`, `This week`, `Waiting`…).
+A zone is a named group on the Pensatorium (`Today`, `This week`, `Waiting`…).
 
+- **New zone** (command) asks for a name and a colour and adds an empty zone next to the Inbox. Any group you draw yourself is a zone too.
+- **Move to zone…** in a card's menu (or the *Move selected cards to zone* command) sends the selected cards to a zone you pick from a list. Dragging works as well.
 - Drop a card in a zone and the zone grows to contain it. Zones never shrink or move.
 - Give a zone a colour and its cards take it. Done (green) and due-date colours win over the zone's; a colour you set on a card by hand is kept, unless it matches a zone colour.
 
