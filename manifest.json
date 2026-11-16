@@ -1,0 +1,10 @@
+{
+	"id": "spatial-tasks",
+	"name": "Spatial Tasks",
+	"version": "0.1.0",
+	"minAppVersion": "1.5.0",
+	"description": "A spatial task manager: every note with open tasks lands on one infinite Canvas desk that you arrange by hand.",
+	"author": "Akatrielaiic",
+	"authorUrl": "https://github.com/Akatrielaiic",
+	"isDesktopOnly": false
+}
