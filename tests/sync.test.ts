@@ -167,7 +167,7 @@ test("zones grow around cards dropped in them, and cards inherit the zone colour
 	const g = r.data.nodes.find((x) => x.id === "g")!;
 	const moved = r.data.nodes.find((x) => x.file === "a.md")!;
 	assert.deepEqual([moved.x, moved.y], [3050, 50], "the card itself is not moved");
-	assert.deepEqual([g.x, g.y], [3000, 0], "the zone does not move");
+	assert.deepEqual([g.x, g.y], [3050 - opts.gap, 50 - opts.gap], "the zone wraps the card with a margin");
 	assert.ok(g.x + g.width >= moved.x + moved.width && g.y + g.height >= moved.y + moved.height, "zone grew");
 	assert.equal(moved.color, "5");
 	assert.equal(r.data.nodes.find((x) => x.file === "b.md")!.color, undefined);
@@ -186,8 +186,8 @@ test("zones grow around cards dropped in them, and cards inherit the zone colour
 
 test("new zones line up to the right of the Inbox without overlapping anything", () => {
 	const first = syncDesk(empty(), [note("a.md"), note("b.md"), note("c.md")], opts);
-	const one = addZone(first.data, { label: "Today", color: "5" }, opts, () => "z1");
-	const two = addZone(one.data, { label: "Waiting" }, opts, () => "z2");
+	const one = addZone(first.data, { label: "Today", color: "5" }, opts, { newId: () => "z1", anchorId: INBOX_ID });
+	const two = addZone(one.data, { label: "Waiting" }, opts, { newId: () => "z2", anchorId: INBOX_ID });
 	const inbox = two.data.nodes.find((x) => x.id === INBOX_ID)!;
 	const [z1, z2] = ["z1", "z2"].map((id) => two.data.nodes.find((x) => x.id === id)!);
 	assert.equal(z1.color, "5");
@@ -202,7 +202,7 @@ test("new zones line up to the right of the Inbox without overlapping anything",
 test("move to zone places cards in free slots and grows the zone", () => {
 	const notes = [note("a.md"), note("b.md"), note("c.md")];
 	const first = syncDesk(empty(), notes, opts);
-	const { data, zone } = addZone(first.data, { label: "Today", color: "5" }, { ...opts, columns: 1 }, () => "z");
+	const { data, zone } = addZone(first.data, { label: "Today", color: "5" }, { ...opts, columns: 1 }, { newId: () => "z", anchorId: INBOX_ID });
 	const ids = data.nodes.filter((x) => x.type === "file").map((x) => x.id);
 	const moved = moveToZone(data, [...ids, "z", INBOX_ID], "z", { ...opts, columns: 1 })!;
 	const z = moved.nodes.find((x) => x.id === "z")!;
@@ -376,4 +376,35 @@ test("tidy inside a sync settles in one go", () => {
 	const inbox = r.data.nodes.find((x) => x.id === INBOX_ID)!;
 	assert.ok(cards.every((c) => contains(inbox, c)));
 	assert.equal(syncDesk(r.data, notes, zoned).changed, false);
+});
+
+test("tidy: a zone shrinks when cards leave or get smaller, down to the size of an empty zone", () => {
+	const data: CanvasData = {
+		nodes: [
+			{ id: "z", type: "group", label: "Today", x: 0, y: 0, width: 3000, height: 2000 },
+			{ id: "empty", type: "group", label: "Later", x: 5000, y: 0, width: 3000, height: 2000 },
+			{ id: "a", type: "text", x: 1000, y: 500, width: 400, height: 400 },
+			{ id: "b", type: "text", x: 1500, y: 500, width: 400, height: 900 },
+			{ id: "c", type: "text", x: 1000, y: 1500, width: 400, height: 400 },
+		],
+		edges: [],
+	};
+	const at = (id: string) => data.nodes.find((x) => x.id === id)!;
+	const box = (id: string) => [at(id).x, at(id).y, at(id).width, at(id).height];
+	tidyZones(data, opts);
+	assert.deepEqual(box("z"), [960, 460, 980, 1480], "wraps a, b and c with a 40px margin");
+	assert.deepEqual(box("empty"), [5000, 0, 3000, 2000], "an empty zone keeps its size");
+	assert.deepEqual([at("a").x, at("c").y], [1000, 1500], "cards did not move");
+
+	at("c").x = 9000; // dragged out
+	at("b").height = 400; // made smaller
+	tidyZones(data, opts);
+	assert.deepEqual(box("z"), [960, 460, 980, 480]);
+
+	at("b").y = 9000; // out as well: one card left, the zone stops at the empty-zone size
+	tidyZones(data, opts);
+	assert.deepEqual(box("z"), [960, 460, 2 * 440 + 40, 480]);
+	const settled = JSON.stringify(data);
+	tidyZones(data, opts);
+	assert.equal(JSON.stringify(data), settled, "stable");
 });

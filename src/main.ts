@@ -16,7 +16,7 @@ import {
 import { type CanvasData, type CanvasNode, parseCanvas, serializeCanvas } from "./canvas.ts";
 import { scanVault } from "./scanner.ts";
 import { DEFAULT_SETTINGS, type CanvasPensumSettings, CanvasPensumSettingTab } from "./settings.ts";
-import { DONE_ID, type Layout, type SyncResult, addZone, moveToZone, syncDesk } from "./sync.ts";
+import { DONE_ID, INBOX_ID, type Layout, type SyncResult, addZone, moveToZone, syncDesk } from "./sync.ts";
 import { TASKS_CACHE_EVENT, getTasksPlugin } from "./tasks-plugin.ts";
 import { computeZones } from "./zones.ts";
 
@@ -146,6 +146,14 @@ export default class CanvasPensumPlugin extends Plugin {
 		});
 	}
 
+	/**
+	 * For other plugins (Canvas Arbor): true when this canvas is the Pensatorium, whose zones
+	 * Canvas Pensum looks after. Whoever else handles zones should leave that canvas alone.
+	 */
+	ownsCanvas(path: string): boolean {
+		return path === this.deskPath();
+	}
+
 	async saveSettings() {
 		await this.saveData(this.settings);
 	}
@@ -217,7 +225,7 @@ export default class CanvasPensumPlugin extends Plugin {
 			if (!desk) return;
 			let created: CanvasNode | undefined;
 			await this.editDesk(desk, (data) => {
-				const result = addZone(data, zone, this.layout());
+				const result = addZone(data, zone, this.layout(), { anchorId: INBOX_ID });
 				created = result.zone;
 				return result.data;
 			});
@@ -244,7 +252,7 @@ export default class CanvasPensumPlugin extends Plugin {
 				if (!desk) return;
 				await this.editDesk(desk, (data) => {
 					if (typeof pick !== "string") return moveToZone(data, ids, pick.id, this.layout());
-					const created = addZone(data, { label: pick }, this.layout());
+					const created = addZone(data, { label: pick }, this.layout(), { anchorId: INBOX_ID });
 					return moveToZone(created.data, ids, created.zone.id, this.layout()) ?? created.data;
 				});
 				await this.sync(false); // zone colour, zone property

@@ -141,7 +141,7 @@ export class CanvasPensumSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Keep zones tidy")
 			.setDesc(
-				"Zones grow to hold their cards and the cards those point to with arrows. Overlapping cards and zones are pushed apart, to the right or down. Zones never shrink.",
+				"Zones wrap their cards and the cards those point to with arrows, growing and shrinking with them. Overlapping cards and zones are pushed apart, to the right or down.",
 			)
 			.addToggle((t) =>
 				t.setValue(s.growZones).onChange(async (v) => {

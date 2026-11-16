@@ -30,7 +30,8 @@ A zone is a named group on the Pensatorium (`Today`, `This week`, `Waiting`…).
 
 - **New zone** (command) asks for a name and a colour and adds an empty zone next to the Inbox. Any group you draw yourself is a zone too.
 - **Move to zone…** in a card's menu (or the *Move selected cards to zone* command, **Cmd/Ctrl+Shift+M**) sends the selected cards to a zone you pick from a list. Type a name that doesn't exist and press Enter to create that zone on the spot. Cards connected by arrows *from* the card (its children, and theirs) move with it and keep their arrangement. Dragging works as well.
-- Zones stay tidy. Drop a card in a zone, resize one, or add children to it with arrows, and the zone grows to hold everything. Cards that would overlap are pushed apart (right or down; the card you have selected stays put), and so are neighbouring zones, together with their cards. Cards joined by arrows move as one piece. Zones never shrink.
+- Zones are responsive: a zone wraps its cards with a margin and follows them. Drop a card in, resize one, add children with arrows, take a card out: the zone grows or shrinks to fit. It never gets smaller than an empty zone, so there is room to drop the next card. An empty zone keeps the size you gave it.
+- Nothing overlaps: cards that would are pushed apart (right or down; the card you have selected stays put), and so are neighbouring zones, together with their cards. Cards joined by arrows move as one piece.
 - A card reached by an arrow belongs to its parent's zone unless it sits in another zone. To detach it, drop it in another zone or remove the arrow.
 - Give a zone a colour and its cards take it. Done (green) and due-date colours win over the zone's; a colour you set on a card by hand is kept, unless it matches a zone colour.
 
