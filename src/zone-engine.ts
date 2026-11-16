@@ -76,7 +76,7 @@ const intersects = (a: Rect, b: Rect) =>
 export const randomId = () => Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
 
 export const clone = (data: CanvasData): CanvasData => {
-	const copy: CanvasData = JSON.parse(JSON.stringify(data));
+	const copy = JSON.parse(JSON.stringify(data)) as CanvasData;
 	copy.nodes ??= [];
 	copy.edges ??= [];
 	return copy;
