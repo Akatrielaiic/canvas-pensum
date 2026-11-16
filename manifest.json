@@ -1,9 +1,9 @@
 {
-	"id": "spatial-tasks",
-	"name": "Spatial Tasks",
-	"version": "0.2.0",
+	"id": "canvas-pensum",
+	"name": "Canvas Pensum",
+	"version": "0.2.1",
 	"minAppVersion": "1.5.0",
-	"description": "A spatial task manager: every note with open tasks lands on one infinite Canvas desk that you arrange by hand.",
+	"description": "A spatial task manager: every note with open tasks lands on the Pensatorium, an infinite Canvas desk you arrange by hand.",
 	"author": "Akatrielaiic",
 	"authorUrl": "https://github.com/Akatrielaiic",
 	"isDesktopOnly": false

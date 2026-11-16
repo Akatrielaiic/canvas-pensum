@@ -1,6 +1,6 @@
 {
-	"name": "spatial-tasks",
-	"version": "0.2.0",
+	"name": "canvas-pensum",
+	"version": "0.2.1",
 	"description": "Obsidian plugin: a spatial task manager built on Canvas.",
 	"main": "main.js",
 	"type": "module",

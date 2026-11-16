@@ -1,8 +1,9 @@
-# Spatial Tasks: framework
+# Canvas Pensum: framework
+
+*Pensum*: il compito da fare. *Pensatorium*: la scrivania, cioè il canvas dove i pensa stanno (nel codice resta "desk").
 
 Documento di lavoro. Fissa i principi da cui deriva ogni decisione, così le iterazioni restano coerenti.
 
-## L'idea in una frase
 
 Una scrivania infinita dove compaiono da sole tutte le note con cose da fare, e dove **la posizione è l'informazione**: vicino = collegato, in alto = urgente, dentro un gruppo = in quello stato. Decidi tu cosa significa lo spazio.
 
@@ -13,7 +14,7 @@ Una scrivania infinita dove compaiono da sole tutte le note con cose da fare, e 
 3. **La posizione è dell'utente.** Il plugin piazza solo le card nuove (Inbox) e, se richiesto, archivia quelle completate (zona Done). Le zone possono allargarsi per contenere le card, mai restringersi o spostarsi.
 4. **Il plugin possiede solo ciò che crea.** I nodi creati dal plugin hanno id con prefisso `st-`. Tutto il resto del canvas è intoccabile.
 5. **Solo metadata cache.** La scansione legge l'indice che Obsidian ha già in memoria, senza aprire file: veloce anche su telefono e su vault grandi.
-6. **Lo spazio diventa dato (opzionale).** Il gruppo in cui sta una card può essere scritto nella nota (`desk-zone: Oggi`), così la disposizione è interrogabile da Bases, Dataview, ricerca.
+6. **Lo spazio diventa dato (opzionale).** Il gruppo in cui sta una card può essere scritto nella nota (`pensum-zone: Oggi`), così la disposizione è interrogabile da Bases, Dataview, ricerca.
 
 ## Architettura
 

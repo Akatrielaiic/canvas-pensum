@@ -1,7 +1,7 @@
 import { type App, type EventRef, Modal, Notice, Plugin, Setting, TFile, debounce, moment, normalizePath } from "obsidian";
 import { type CanvasData, parseCanvas, serializeCanvas } from "./canvas.ts";
 import { scanVault } from "./scanner.ts";
-import { DEFAULT_SETTINGS, type SpatialTasksSettings, SpatialTasksSettingTab } from "./settings.ts";
+import { DEFAULT_SETTINGS, type CanvasPensumSettings, CanvasPensumSettingTab } from "./settings.ts";
 import { type SyncResult, syncDesk } from "./sync.ts";
 import { TASKS_CACHE_EVENT, getTasksPlugin } from "./tasks-plugin.ts";
 import { computeZones } from "./zones.ts";
@@ -13,16 +13,16 @@ interface LiveCanvas {
 	requestSave(): void;
 }
 
-export default class SpatialTasksPlugin extends Plugin {
-	settings: SpatialTasksSettings = DEFAULT_SETTINGS;
+export default class CanvasPensumPlugin extends Plugin {
+	settings: CanvasPensumSettings = DEFAULT_SETTINGS;
 
 	async onload() {
 		this.settings = { ...DEFAULT_SETTINGS, ...(await this.loadData()) };
-		this.addSettingTab(new SpatialTasksSettingTab(this.app, this));
+		this.addSettingTab(new CanvasPensumSettingTab(this.app, this));
 
-		this.addRibbonIcon("layout-dashboard", "Open task desk", () => this.openDesk());
-		this.addCommand({ id: "open-desk", name: "Open task desk", callback: () => this.openDesk() });
-		this.addCommand({ id: "sync-desk", name: "Sync task desk now", callback: () => this.sync(true) });
+		this.addRibbonIcon("layout-dashboard", "Open Pensatorium", () => this.openDesk());
+		this.addCommand({ id: "open-desk", name: "Open Pensatorium", callback: () => this.openDesk() });
+		this.addCommand({ id: "sync-desk", name: "Sync Pensatorium now", callback: () => this.sync(true) });
 		this.addCommand({ id: "add-task", name: "Add task", callback: () => this.addTask() });
 
 		const autoSync = debounce(() => this.settings.autoSync && this.sync(false), 2000, true);
@@ -71,8 +71,8 @@ export default class SpatialTasksPlugin extends Plugin {
 			const desk = await this.sync(true);
 			if (desk) await this.app.workspace.getLeaf(false).openFile(desk);
 		} catch (e) {
-			console.error("Spatial Tasks", e);
-			new Notice("Spatial Tasks: could not open the desk (see console).");
+			console.error("Canvas Pensum", e);
+			new Notice("Canvas Pensum: could not open the Pensatorium (see console).");
 		}
 	}
 
@@ -94,7 +94,7 @@ export default class SpatialTasksPlugin extends Plugin {
 		const notes = scanVault(this.app, this.settings);
 		if (!notes) {
 			// Tasks is still indexing; its cache-update event will trigger the sync when it is done.
-			if (manual) new Notice("Task desk: the Tasks plugin is still indexing, the desk will fill in a moment.");
+			if (manual) new Notice("Pensatorium: the Tasks plugin is still indexing, cards will appear in a moment.");
 			return desk;
 		}
 		const run = (data: CanvasData) =>
@@ -134,8 +134,8 @@ export default class SpatialTasksPlugin extends Plugin {
 			const { added, completed, removed } = result;
 			new Notice(
 				result.changed
-					? `Task desk: ${added.length} new, ${completed.length} completed, ${removed.length} removed.`
-					: "Task desk is up to date.",
+					? `Pensatorium: ${added.length} new, ${completed.length} completed, ${removed.length} removed.`
+					: "Pensatorium is up to date.",
 			);
 		}
 		return desk;
@@ -159,8 +159,8 @@ export default class SpatialTasksPlugin extends Plugin {
 			}
 			new Notice(`Task added to ${path}`);
 		} catch (e) {
-			console.error("Spatial Tasks", e);
-			new Notice("Spatial Tasks: could not add the task (see console).");
+			console.error("Canvas Pensum", e);
+			new Notice("Canvas Pensum: could not add the task (see console).");
 		}
 	}
 

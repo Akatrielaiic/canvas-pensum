@@ -1,5 +1,5 @@
 import { type App, TFile, getAllTags } from "obsidian";
-import type { SpatialTasksSettings } from "./settings.ts";
+import type { CanvasPensumSettings } from "./settings.ts";
 import type { TaskNote } from "./sync.ts";
 import { getTasksPlugin, tasksReady } from "./tasks-plugin.ts";
 
@@ -11,7 +11,7 @@ const DONE_MARKS = new Set(["x", "X", "-"]);
  * With Tasks installed we use its index, so its global filter, custom statuses and dates apply.
  * Otherwise we read Obsidian's metadata cache. Either way there is no file I/O.
  */
-export function scanVault(app: App, settings: SpatialTasksSettings): TaskNote[] | null {
+export function scanVault(app: App, settings: CanvasPensumSettings): TaskNote[] | null {
 	const excluded = settings.excludeFolders
 		.split("\n")
 		.map((f) => f.trim().replace(/^\/+|\/+$/g, ""))
@@ -21,7 +21,7 @@ export function scanVault(app: App, settings: SpatialTasksSettings): TaskNote[] 
 	const allowed = (file: TFile) => {
 		if (excluded.some((f) => file.path === f || file.path.startsWith(f + "/"))) return false;
 		const cache = app.metadataCache.getFileCache(file);
-		if (cache?.frontmatter?.desk === false) return false; // per-note opt-out
+		if (cache?.frontmatter?.pensum === false) return false; // per-note opt-out
 		if (tag !== "#" && !(cache && getAllTags(cache)?.some((t) => t.toLowerCase() === tag))) return false;
 		return true;
 	};

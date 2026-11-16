@@ -10,6 +10,7 @@
 import type { CanvasData, CanvasNode } from "./canvas.ts";
 import { area, centreInside, groupsBySize, zoneOf } from "./zones.ts";
 
+// "st-" dates from the plugin's first name (Spatial Tasks). Kept so existing desks keep working.
 export const MANAGED_PREFIX = "st-";
 export const INBOX_ID = "st-inbox";
 export const DONE_ID = "st-done";

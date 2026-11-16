@@ -1,8 +1,8 @@
 import { type App, PluginSettingTab, Setting } from "obsidian";
-import type SpatialTasksPlugin from "./main.ts";
+import type CanvasPensumPlugin from "./main.ts";
 import { getTasksPlugin } from "./tasks-plugin.ts";
 
-export interface SpatialTasksSettings {
+export interface CanvasPensumSettings {
 	deskPath: string;
 	excludeFolders: string;
 	requiredTag: string;
@@ -19,8 +19,8 @@ export interface SpatialTasksSettings {
 	columns: number;
 }
 
-export const DEFAULT_SETTINGS: SpatialTasksSettings = {
-	deskPath: "Task Desk.canvas",
+export const DEFAULT_SETTINGS: CanvasPensumSettings = {
+	deskPath: "Pensatorium.canvas",
 	excludeFolders: "",
 	requiredTag: "",
 	autoSync: true,
@@ -30,14 +30,14 @@ export const DEFAULT_SETTINGS: SpatialTasksSettings = {
 	colorByDue: true,
 	captureNote: "Inbox.md",
 	writeZones: false,
-	zoneProperty: "desk-zone",
+	zoneProperty: "pensum-zone",
 	cardWidth: 400,
 	cardHeight: 400,
 	columns: 4,
 };
 
-export class SpatialTasksSettingTab extends PluginSettingTab {
-	constructor(app: App, private plugin: SpatialTasksPlugin) {
+export class CanvasPensumSettingTab extends PluginSettingTab {
+	constructor(app: App, private plugin: CanvasPensumPlugin) {
 		super(app, plugin);
 	}
 
@@ -48,8 +48,8 @@ export class SpatialTasksSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName("Desk canvas")
-			.setDesc("Path of the canvas used as your desk. Created on first use.")
+			.setName("Pensatorium canvas")
+			.setDesc("Path of the canvas used as your Pensatorium. Created on first use.")
 			.addText((t) =>
 				t.setValue(s.deskPath).onChange(async (v) => {
 					s.deskPath = v.trim() || DEFAULT_SETTINGS.deskPath;
@@ -59,7 +59,7 @@ export class SpatialTasksSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Sync automatically")
-			.setDesc("Keep the desk up to date as tasks are added and completed.")
+			.setDesc("Keep the Pensatorium up to date as tasks are added and completed.")
 			.addToggle((t) =>
 				t.setValue(s.autoSync).onChange(async (v) => {
 					s.autoSync = v;
@@ -69,7 +69,7 @@ export class SpatialTasksSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Excluded folders")
-			.setDesc("One folder per line, e.g. Templates. A note can also opt out with `desk: false` in its properties.")
+			.setDesc("One folder per line, e.g. Templates. A note can also opt out with `pensum: false` in its properties.")
 			.addTextArea((t) =>
 				t.setValue(s.excludeFolders).onChange(async (v) => {
 					s.excludeFolders = v;
@@ -79,7 +79,7 @@ export class SpatialTasksSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Only notes tagged")
-			.setDesc("Optional. If set, only notes with this tag are pulled onto the desk.")
+			.setDesc("Optional. If set, only notes with this tag are pulled onto the Pensatorium.")
 			.addText((t) =>
 				t
 					.setPlaceholder("#todo")
@@ -99,7 +99,7 @@ export class SpatialTasksSettingTab extends PluginSettingTab {
 					.addOption("remove", "Remove its card")
 					.setValue(s.onComplete)
 					.onChange(async (v) => {
-						s.onComplete = v as SpatialTasksSettings["onComplete"];
+						s.onComplete = v as CanvasPensumSettings["onComplete"];
 						await save();
 					}),
 			);
@@ -119,8 +119,8 @@ export class SpatialTasksSettingTab extends PluginSettingTab {
 			.setHeading()
 			.setDesc(
 				getTasksPlugin(this.app)
-					? "Detected. The desk follows its global filter, custom statuses and dates, and “Add task” opens its task editor."
-					: "Not installed. The desk works with plain checkboxes; install Tasks for due dates, custom statuses and its task editor.",
+					? "Detected. the Pensatorium follows its global filter, custom statuses and dates, and “Add task” opens its task editor."
+					: "Not installed. the Pensatorium works with plain checkboxes; install Tasks for due dates, custom statuses and its task editor.",
 			);
 
 		new Setting(containerEl)
@@ -136,7 +136,7 @@ export class SpatialTasksSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Zones")
 			.setHeading()
-			.setDesc("A zone is any group you draw on the desk.");
+			.setDesc("A zone is any group you draw on the Pensatorium.");
 
 		new Setting(containerEl)
 			.setName("Grow zones to fit")
