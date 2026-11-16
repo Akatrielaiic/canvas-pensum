@@ -92,7 +92,8 @@ export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions
 			type: "group",
 			label,
 			x: side === "right" && all.length ? Math.max(...all.map((n) => n.x + n.width)) + opts.gap * 4 : minX,
-			y: side === "below" && all.length ? Math.max(...all.map((n) => n.y + n.height)) + opts.gap * 4 : minY,
+			// Beside the Inbox when there is one, so Done lines up with it rather than with a note above.
+			y: side === "below" && all.length ? Math.max(...all.map((n) => n.y + n.height)) + opts.gap * 4 : (all.find((n) => n.id === INBOX_ID)?.y ?? minY),
 			width: opts.columns * (opts.cardWidth + opts.gap) + opts.gap,
 			height: opts.cardHeight + opts.gap * 2,
 		};

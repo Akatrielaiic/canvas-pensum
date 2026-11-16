@@ -52,6 +52,12 @@ export class CanvasPensumSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
+			.setName("How it works")
+			.setDesc(
+				"Every note with open tasks lands on the Pensatorium as a card, first in the Inbox. Drag cards into zones (named groups), or select them and use “Move to zone”. When a note has no open tasks left, its card turns green and moves to Done. “Add task to a note” adds a task from anywhere. The keys are listed in the canvas help (the ? among the canvas controls), and “Add the guide card” puts this explanation on the canvas.",
+			);
+
+		new Setting(containerEl)
 			.setName("Pensatorium canvas")
 			.setDesc("Path of the canvas used as your Pensatorium. Created on first use.")
 			.addText((t) =>

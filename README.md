@@ -16,6 +16,7 @@ Every note that has open tasks (`- [ ]`) lands as a card on one infinite canvas,
 
 ### Adding tasks
 
+- **Add task to this note** in a card's menu does the same for that card's note, without asking which.
 - **Add task to a note** (**Cmd/Ctrl+Shift+A**, or the button among the canvas controls on the right of the Pensatorium) asks which note, with search. Type a name that doesn't exist and press Enter to create the note. With one card selected, its note is the first suggestion. On the Pensatorium, the empty task is written and the cursor lands on it inside the note's card, so you type it in the note itself, with the Tasks plugin's suggestions. Anywhere else, you type the task in a one-line box and press Enter, without leaving what you were doing. Either way it goes at the top of the note, below the properties and the title, under a heading that links to the day:
 
   ```markdown
@@ -49,6 +50,11 @@ A zone is a named group on the Pensatorium (`Today`, `This week`, `Waiting`…).
 - Give a zone a colour and its cards take it. Done (green) and due-date colours win over the zone's; a colour you set on a card by hand is kept, unless it matches a zone colour.
 
 With *Write zone to note property* enabled, the label of the group a card sits in is written to the note as `pensum-zone: Today`, so your layout can be queried from Bases, Dataview or search.
+
+### Finding your way
+
+- A new Pensatorium starts with a **guide card** that explains Inbox, zones, Done and how to add tasks. Delete it when you no longer need it; *Add the guide card* brings it back.
+- The canvas help (the **?** among the canvas controls) lists Canvas Pensum's keys below Canvas's own, with the ones you have changed.
 
 ### Leaving notes out
 

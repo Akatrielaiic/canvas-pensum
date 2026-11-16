@@ -21,6 +21,7 @@ import {
 } from "obsidian";
 import { type CanvasData, type CanvasNode, parseCanvas, serializeCanvas } from "./canvas.ts";
 import { insertAtTop, insertUnderHeading, notePath } from "./capture.ts";
+import { type HelpRow, commandKeys, keyText, watchCanvasHelp } from "./help.ts";
 import { scanVault } from "./scanner.ts";
 import { DEFAULT_SETTINGS, type CanvasPensumSettings, CanvasPensumSettingTab } from "./settings.ts";
 import { DONE_ID, INBOX_ID, type Layout, type SyncResult, addZone, moveToZone, syncDesk } from "./sync.ts";
@@ -45,6 +46,26 @@ const PENSATORIUM_SVG =
 	'<g transform="scale(4.1667)" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
 	'<path d="M1.2 8.95 12 2.35l10.8 6.6"/><path d="M3 8.95h18"/><path d="M5.4 12.55v6.6M18.6 12.55v6.6"/>' +
 	'<path d="M1.8 22.15h20.4"/><path d="m9 15.8 2.16 2.16 4.08-4.32"/></g>';
+
+const GUIDE_ID = "pensum-guide";
+
+/** The card that explains the Pensatorium, put on a new one. Plain text: the user can edit or delete it. */
+function guideText(addTask: string, moveToZone: string): string {
+	const key = (keys: string) => (keys ? ` (${keys})` : "");
+	return [
+		"## Welcome to the Pensatorium",
+		"",
+		"Every note with open tasks (`- [ ]`) lands here as a card. The cards are the notes themselves: tick and edit them right here.",
+		"",
+		"- **Inbox**: new cards arrive there. Drag them wherever you like.",
+		`- **Zones**: named groups, like *Today* or *Waiting*. Select cards and use *Move to zone…*${key(moveToZone)}; type a new name to create a zone. A zone wraps its cards and gives them its colour.`,
+		"- **Done**: when a note has no open tasks left, its card turns green and moves there. Delete cards from Done freely: the notes stay.",
+		`- **New task**: *Add task to a note*${key(addTask)}, or the button among the canvas controls. Pick a note and type.`,
+		"- **Arrows**: cards joined by arrows travel together.",
+		"",
+		"The keys are also in the canvas help (the **?** among the canvas controls). Delete this card when you no longer need it.",
+	].join("\n");
+}
 
 interface LiveNode {
 	isEditing?: boolean;
@@ -97,7 +118,7 @@ function applyLive(live: LiveCanvas, next: CanvasData): boolean {
 
 /** Undocumented workspace events fired by the canvas for its context menus. */
 type CanvasMenuEvents = {
-	on(name: "canvas:node-menu", cb: (menu: Menu, node: { id: string; canvas?: unknown }) => void): EventRef;
+	on(name: "canvas:node-menu", cb: (menu: Menu, node: { id: string; canvas?: unknown; file?: unknown }) => void): EventRef;
 	on(name: "canvas:selection-menu", cb: (menu: Menu, canvas: unknown) => void): EventRef;
 	on(name: string, cb: () => void): EventRef;
 };
@@ -126,6 +147,7 @@ export default class CanvasPensumPlugin extends Plugin {
 			hotkeys: [{ modifiers: ["Mod", "Shift"], key: "a" }],
 			callback: () => this.addTaskToNote(),
 		});
+		this.addCommand({ id: "add-guide", name: "Add the guide card", callback: () => this.addGuide() });
 		this.addCommand({ id: "new-zone", name: "New zone", callback: () => this.newZone() });
 		this.addCommand({
 			id: "move-to-zone",
@@ -147,7 +169,17 @@ export default class CanvasPensumPlugin extends Plugin {
 			);
 		this.registerEvent(
 			events.on("canvas:node-menu", (menu, node) => {
-				if (node?.id && node.canvas === this.liveCanvas(this.deskPath())) addMenuItem(menu, [node.id]);
+				if (!node?.id || node.canvas !== this.liveCanvas(this.deskPath())) return;
+				const note = node.file;
+				if (note instanceof TFile && note.extension === "md") {
+					menu.addItem((item) =>
+						item
+							.setTitle("Add task to this note")
+							.setIcon("list-plus")
+							.onClick(() => this.captureTo(note, true)),
+					);
+				}
+				addMenuItem(menu, [node.id]);
 			}),
 		);
 		this.registerEvent(
@@ -157,6 +189,10 @@ export default class CanvasPensumPlugin extends Plugin {
 		);
 
 		const autoSync = debounce(() => this.settings.autoSync && this.sync(false), 2000, true);
+		const watchHelp = (win: Window) => this.register(watchCanvasHelp(win.document, "pensum-help", "Canvas Pensum", () => this.helpRows()));
+		watchHelp(window);
+		this.registerEvent(this.app.workspace.on("window-open", (_w, win) => watchHelp(win)));
+
 		// A button for it among the canvas controls, on the Pensatorium only.
 		this.registerEvent(this.app.workspace.on("layout-change", () => this.addCanvasButton()));
 		this.register(() => activeDocument.querySelectorAll(".pensum-controls").forEach((el) => el.remove()));
@@ -225,7 +261,8 @@ export default class CanvasPensumPlugin extends Plugin {
 		if (!create) return null;
 		const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
 		if (folder && !this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
-		return this.app.vault.create(path, serializeCanvas({ nodes: [], edges: [] }));
+		// A new Pensatorium starts with a card that explains it.
+		return this.app.vault.create(path, serializeCanvas({ nodes: [this.guideNode({ nodes: [], edges: [] })], edges: [] }));
 	}
 
 	private async openDesk() {
@@ -246,6 +283,43 @@ export default class CanvasPensumPlugin extends Plugin {
 			if (view.file?.path === path && c?.getData && c.setData && c.requestSave) return c as LiveCanvas;
 		}
 		return null;
+	}
+
+	private keysOf(command: string): string {
+		return commandKeys(this.app, `${this.manifest.id}:${command}`).map(keyText).join(" / ");
+	}
+
+	/** The guide card, placed above everything already on the canvas. */
+	private guideNode(data: CanvasData): CanvasNode {
+		const width = 520;
+		const height = 560;
+		const nodes = data.nodes;
+		return {
+			id: GUIDE_ID,
+			type: "text",
+			text: guideText(this.keysOf("add-task-to-note"), this.keysOf("move-to-zone")),
+			x: nodes.length ? Math.min(...nodes.map((n) => n.x)) : 0,
+			y: (nodes.length ? Math.min(...nodes.map((n) => n.y)) : 0) - height - 160,
+			width,
+			height,
+		};
+	}
+
+	private async addGuide() {
+		const desk = await this.getDesk(true);
+		if (!desk) return;
+		await this.editDesk(desk, (data) => (data.nodes.some((n) => n.id === GUIDE_ID) ? null : { ...data, nodes: [...data.nodes, this.guideNode(data)] }));
+		const guide = this.liveCanvas(desk.path)?.nodes?.get(GUIDE_ID)?.getBBox?.();
+		if (guide) this.liveCanvas(desk.path)?.zoomToBbox?.(guide);
+	}
+
+	/** Our keys, for the canvas help. Only on the Pensatorium. */
+	private helpRows(): HelpRow[] | null {
+		if (!this.deskIsActive()) return null;
+		return [
+			{ label: "Add task to a note", keys: commandKeys(this.app, `${this.manifest.id}:add-task-to-note`) },
+			{ label: "Move the selected cards to a zone (a new name creates it)", keys: commandKeys(this.app, `${this.manifest.id}:move-to-zone`) },
+		];
 	}
 
 	/** Applies `edit` to the desk; `edit` returns null to leave it untouched. */
@@ -411,44 +485,45 @@ export default class CanvasPensumPlugin extends Plugin {
 	 */
 	private addTaskToNote() {
 		const onDesk = this.deskIsActive();
-		new NotePicker(this.app, this.selectedNote(), async (pick) => {
-			try {
-				const name = typeof pick === "string" ? pick : pick.basename;
-				const line = onDesk ? "- [ ] " : await promptTaskLine(this.app, `Task for ${name}`);
-				if (!line) return;
-				const heading = this.settings.captureDate
-					? `### [[${moment().format(this.settings.captureDateFormat || "YYYY-MM-DD")}]]`
-					: null;
-				const place = (text: string) => (heading ? insertUnderHeading(text, heading, line) : insertAtTop(text, line));
+		new NotePicker(this.app, this.selectedNote(), (pick) => this.captureTo(pick, onDesk)).open();
+	}
 
-				let file = typeof pick === "string" ? null : pick;
-				if (typeof pick === "string") {
-					const path = normalizePath(notePath(pick, this.app.fileManager.getNewFileParent("").path));
-					if (!path) return;
-					const existing = this.app.vault.getAbstractFileByPath(path);
-					if (existing instanceof TFile) file = existing;
-					else {
-						const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-						if (folder && !this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
-						file = await this.app.vault.create(path, "");
-					}
-				}
-				if (!file) return;
-				await this.app.vault.process(file, place);
+	/** Adds a task at the top of a note (a name creates the note). `onDesk`: type it in the card. */
+	private async captureTo(pick: TFile | string, onDesk: boolean) {
+		try {
+			const name = typeof pick === "string" ? pick : pick.basename;
+			const line = onDesk ? "- [ ] " : await promptTaskLine(this.app, `Task for ${name}`);
+			if (!line) return;
+			const heading = this.settings.captureDate ? `### [[${moment().format(this.settings.captureDateFormat || "YYYY-MM-DD")}]]` : null;
+			const place = (text: string) => (heading ? insertUnderHeading(text, heading, line) : insertAtTop(text, line));
 
-				if (!onDesk) {
-					new Notice(`Task added to ${file.basename}`);
-					return;
+			let file = typeof pick === "string" ? null : pick;
+			if (typeof pick === "string") {
+				const path = normalizePath(notePath(pick, this.app.fileManager.getNewFileParent("").path));
+				if (!path) return;
+				const existing = this.app.vault.getAbstractFileByPath(path);
+				if (existing instanceof TFile) file = existing;
+				else {
+					const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+					if (folder && !this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
+					file = await this.app.vault.create(path, "");
 				}
-				// An empty task may not count as a task yet: hold the card on the desk meanwhile.
-				this.capturing.set(file.path, Date.now() + 2 * 60 * 1000);
-				await this.sync(false);
-				if (!(await this.writeInCard(file.path))) new Notice(`Empty task added to ${file.basename}: open its card to write it.`);
-			} catch (e) {
-				console.error("Canvas Pensum", e);
-				new Notice("Canvas Pensum: could not add the task (see console).");
 			}
-		}).open();
+			if (!file) return;
+			await this.app.vault.process(file, place);
+
+			if (!onDesk) {
+				new Notice(`Task added to ${file.basename}`);
+				return;
+			}
+			// An empty task may not count as a task yet: hold the card on the desk meanwhile.
+			this.capturing.set(file.path, Date.now() + 2 * 60 * 1000);
+			await this.sync(false);
+			if (!(await this.writeInCard(file.path))) new Notice(`Empty task added to ${file.basename}: open its card to write it.`);
+		} catch (e) {
+			console.error("Canvas Pensum", e);
+			new Notice("Canvas Pensum: could not add the task (see console).");
+		}
 	}
 
 	/**
