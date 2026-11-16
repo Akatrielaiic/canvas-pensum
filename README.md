@@ -4,6 +4,8 @@ A spatial task manager for [Obsidian](https://obsidian.md), built on the native 
 
 Every note that has open tasks (`- [ ]`) lands as a card on one infinite canvas, the **Pensatorium**. You arrange the cards by hand; the plugin only keeps it complete.
 
+<!-- GIF (uncomment when recorded): ![A task written in a note appears as a card in the Inbox](docs/media/task-to-card.gif) -->
+
 > Status: early, in active development.
 
 ## How it works
@@ -13,6 +15,8 @@ Every note that has open tasks (`- [ ]`) lands as a card on one infinite canvas,
 - Cards are the notes themselves: tick a checkbox on the card and the note is updated. Nothing is copied.
 - When a note has no open tasks left, its card turns green and moves to the **Done** zone, along with the cards its arrows lead to (or stays put, or is removed: your choice). Delete cards from Done whenever you like; the notes are untouched, and a note only comes back if it gets a new open task.
 - Apart from that, the plugin never moves or deletes a card you placed, and never touches cards you added by hand.
+
+<!-- GIF (uncomment when recorded): ![Ticking the last task turns the card green and moves it to Done](docs/media/done.gif) -->
 
 ### Adding tasks
 
@@ -28,6 +32,8 @@ Every note that has open tasks (`- [ ]`) lands as a card on one infinite canvas,
 - **Add task** writes to one fixed capture note (`Inbox.md` by default), for things to sort later.
 - Or write `- [ ]` straight in a card: cards are the notes themselves.
 
+<!-- GIF (uncomment when recorded): ![Add task to a note: pick the note, the cursor lands in its card](docs/media/add-task.gif) -->
+
 ### With the Tasks plugin
 
 If the [Tasks](https://github.com/obsidian-tasks-group/obsidian-tasks) plugin is installed, the Pensatorium uses it automatically; there is nothing to configure.
@@ -41,6 +47,9 @@ Without Tasks, the Pensatorium works on plain checkboxes and **Add task** is a o
 ### Zones
 
 A zone is a named group on the Pensatorium (`Today`, `This week`, `Waiting`…).
+
+<!-- GIF (uncomment when recorded): ![Move to zone: select cards, type a new zone name, press Enter](docs/media/move-to-zone.gif) -->
+<!-- GIF (uncomment when recorded): ![A zone grows and shrinks as cards are dragged in and out](docs/media/responsive-zone.gif) -->
 
 - **New zone** (command) asks for a name and a colour and adds an empty zone next to the Inbox. Any group you draw yourself is a zone too.
 - **Move to zone…** in a card's menu (or the *Move selected cards to zone* command, **Cmd/Ctrl+Shift+M**) sends the selected cards to a zone you pick from a list. Type a name that doesn't exist and press Enter to create that zone on the spot. Cards connected by arrows *from* the card (its children, and theirs) move with it and keep their arrangement. Dragging works as well.

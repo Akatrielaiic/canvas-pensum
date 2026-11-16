@@ -313,13 +313,16 @@ export default class CanvasPensumPlugin extends Plugin {
 		if (guide) this.liveCanvas(desk.path)?.zoomToBbox?.(guide);
 	}
 
-	/** Our keys, for the canvas help. Only on the Pensatorium. */
-	private helpRows(): HelpRow[] | null {
-		if (!this.deskIsActive()) return null;
-		return [
-			{ label: "Add task to a note", keys: commandKeys(this.app, `${this.manifest.id}:add-task-to-note`) },
-			{ label: "Move the selected cards to a zone (a new name creates it)", keys: commandKeys(this.app, `${this.manifest.id}:move-to-zone`) },
-		];
+	/** Our keys, for the canvas help: adding a task works on any canvas, zones are the Pensatorium's. */
+	private helpRows(): HelpRow[] {
+		const rows: HelpRow[] = [{ label: "Add task to a note", keys: commandKeys(this.app, `${this.manifest.id}:add-task-to-note`) }];
+		if (this.deskIsActive()) {
+			rows.push({
+				label: "Move the selected cards to a zone (a new name creates it)",
+				keys: commandKeys(this.app, `${this.manifest.id}:move-to-zone`),
+			});
+		}
+		return rows;
 	}
 
 	/** Applies `edit` to the desk; `edit` returns null to leave it untouched. */
