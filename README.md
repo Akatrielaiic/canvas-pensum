@@ -14,6 +14,16 @@ Every note that has open tasks (`- [ ]`) lands as a card on one infinite canvas,
 - When a note has no open tasks left, its card turns green (or is removed, your choice).
 - The plugin never moves, resizes or deletes anything you placed yourself.
 
+### With the Tasks plugin
+
+If the [Tasks](https://github.com/obsidian-tasks-group/obsidian-tasks) plugin is installed, the desk uses it automatically; there is nothing to configure.
+
+- What counts as a task, and as done, is decided by Tasks: its global filter and custom statuses apply.
+- Cards turn red when a task in the note is overdue and orange when one is due or scheduled today. A colour you pick yourself is left alone, except red, orange and green, which the plugin manages.
+- **Add task** opens the Tasks editor (dates, priority, recurrence) and saves the task to your capture note (`Inbox.md` by default), which then shows up on the desk.
+
+Without Tasks, the desk works on plain checkboxes and **Add task** is a one-line prompt.
+
 ### Zones (optional)
 
 Draw groups on the desk and name them (`Today`, `This week`, `Waiting`…). With *Write zone to note property* enabled, the label of the group a card sits in is written to the note as `desk-zone: Today`, so your layout can be queried from Bases, Dataview or search.

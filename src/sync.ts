@@ -3,7 +3,8 @@
 // The contract with the user:
 //   - positions, sizes and anything the user put on the canvas are never touched;
 //   - notes with open tasks that are not on the desk yet are dropped in the Inbox group;
-//   - cards the plugin added are marked (or removed) once their note has no open tasks.
+//   - cards the plugin added are marked (or removed) once their note has no open tasks,
+//     and optionally coloured when their tasks are due or overdue.
 
 import type { CanvasData, CanvasNode } from "./canvas.ts";
 
@@ -14,6 +15,8 @@ export interface TaskNote {
 	path: string;
 	open: number;
 	done: number;
+	/** Earliest due/scheduled day among the open tasks, as YYYY-MM-DD. */
+	due?: string | null;
 }
 
 export interface SyncOptions {
@@ -24,6 +27,10 @@ export interface SyncOptions {
 	inboxLabel: string;
 	onComplete: "mark" | "remove";
 	doneColor: string; // canvas preset "1".."6" or a hex color
+	/** Today as YYYY-MM-DD. When set, open cards are coloured by their due date. */
+	today?: string;
+	overdueColor?: string;
+	todayColor?: string;
 	/** Whether a path still exists in the vault. Cards of deleted notes are removed. */
 	exists?: (path: string) => boolean;
 	newId?: () => string;
@@ -35,6 +42,7 @@ export interface SyncResult {
 	added: string[];
 	completed: string[];
 	reopened: string[];
+	recolored: string[];
 	removed: string[];
 }
 
@@ -55,19 +63,30 @@ export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions
 	const data: CanvasData = JSON.parse(JSON.stringify(input));
 	data.nodes ??= [];
 	data.edges ??= [];
-	const result: SyncResult = { data, changed: false, added: [], completed: [], reopened: [], removed: [] };
+	const result: SyncResult = { data, changed: false, added: [], completed: [], reopened: [], recolored: [], removed: [] };
 	const exists = opts.exists ?? (() => true);
 	const newId = opts.newId ?? randomId;
-	const open = new Set(notes.filter((n) => n.open > 0).map((n) => n.path));
+	const open = new Map(notes.filter((n) => n.open > 0).map((n) => [n.path, n]));
+	const overdueColor = opts.overdueColor ?? "1";
+	const todayColor = opts.todayColor ?? "2";
+	const urgency = (path: string): string | undefined => {
+		const due = open.get(path)?.due;
+		if (!opts.today || !due || due > opts.today) return undefined;
+		return due < opts.today ? overdueColor : todayColor;
+	};
+	// Colours we are allowed to overwrite; anything else was chosen by the user.
+	const ours = new Set<unknown>([undefined, opts.doneColor, ...(opts.today ? [overdueColor, todayColor] : [])]);
 
 	// 1. Update the cards we own.
 	const dropped = new Set<string>();
 	for (const node of data.nodes) {
 		if (node.type !== "file" || !node.file || !node.id.startsWith(MANAGED_PREFIX)) continue;
 		if (open.has(node.file)) {
-			if (node.color === opts.doneColor) {
-				delete node.color;
-				result.reopened.push(node.file);
+			const want = urgency(node.file);
+			if (node.color !== want && ours.has(node.color)) {
+				(node.color === opts.doneColor ? result.reopened : result.recolored).push(node.file);
+				if (want) node.color = want;
+				else delete node.color;
 			}
 		} else if (!exists(node.file) || opts.onComplete === "remove") {
 			dropped.add(node.id);
@@ -84,7 +103,7 @@ export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions
 
 	// 2. Add notes that are not on the desk yet (whoever put them there).
 	const present = new Set(data.nodes.filter((n) => n.type === "file").map((n) => n.file));
-	const toAdd = [...open].filter((p) => !present.has(p)).sort();
+	const toAdd = [...open.keys()].filter((p) => !present.has(p)).sort();
 	if (toAdd.length) {
 		const inbox = ensureInbox(data, opts);
 		const obstacles: Rect[] = data.nodes.filter((n) => n.type !== "group");
@@ -102,6 +121,8 @@ export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions
 				slot++;
 			} while (obstacles.some((o) => intersects(o, rect)));
 			const node: CanvasNode = { id: newId(), type: "file", file: path, ...rect };
+			const color = urgency(path);
+			if (color) node.color = color;
 			data.nodes.push(node);
 			obstacles.push(node);
 			inbox.width = Math.max(inbox.width, rect.x + rect.width + opts.gap - inbox.x);
@@ -110,8 +131,9 @@ export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions
 		}
 	}
 
-	result.changed =
-		result.added.length + result.completed.length + result.reopened.length + result.removed.length > 0;
+	result.changed = [result.added, result.completed, result.reopened, result.recolored, result.removed].some(
+		(list) => list.length > 0,
+	);
 	return result;
 }
 

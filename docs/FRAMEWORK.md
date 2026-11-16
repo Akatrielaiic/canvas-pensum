@@ -22,6 +22,7 @@ Una scrivania infinita dove compaiono da sole tutte le note con cose da fare, e 
 | `src/scanner.ts` | vault → elenco note con task aperti/chiusi | sì |
 | `src/sync.ts` | (canvas, note) → canvas aggiornato. Funzione pura | no |
 | `src/zones.ts` | canvas → zona di ogni nota. Funzione pura | no |
+| `src/tasks-plugin.ts` | ponte verso il plugin Tasks (opzionale) | sì |
 | `src/main.ts` | comandi, eventi, lettura/scrittura del canvas | sì |
 | `src/settings.ts` | impostazioni | sì |
 
@@ -31,6 +32,7 @@ Scrittura del canvas: se la scrivania è aperta si passa dalla vista (`canvas.ge
 
 ## Rischi noti
 
+- **API di Tasks**: `getTasks()`, `getState()` e l'evento `cache-update` sono usati da altri plugin ma non sono API pubbliche documentate (lo è solo `apiV1`). Se cambiano, si ricade sui checkbox semplici.
 - **API interna del canvas**: può cambiare con un aggiornamento di Obsidian. In quel caso si ricade sulla scrittura del file.
 - **Scrivanie molto affollate**: ogni card renderizza una nota intera. Obsidian renderizza solo ciò che è a schermo, ma oltre qualche centinaio di card va verificato su mobile.
 - **Granularità**: una card = una nota. Una nota con 30 task è una card sola (vedi roadmap).
@@ -40,12 +42,13 @@ Scrittura del canvas: se la scrivania è aperta si passa dalla vista (`canvas.ge
 Ordine indicativo; ogni voce va validata usando la v0.1 per qualche giorno.
 
 - **v0.1 (fatto)**: scrivania, Inbox, completate in verde, zone → proprietà, filtri.
+- **Integrazione Tasks (fatto)**: se il plugin Tasks è installato si usa il suo indice (filtro globale, stati personalizzati, date); colore per scadenza; comando "Add task" con l'editor di Tasks.
 - **v0.2 Disposizione iniziale**: al primo riempimento, raggruppare per cartella o tag invece di un'unica Inbox. Comando "riordina Inbox".
 - **v0.3 Card per sezione**: nodo `file` con `subpath` (`#Titolo`) per mostrare solo la sezione con i task, card più compatte.
 - **v0.4 Zone attive**: la zona scrive anche altre proprietà (es. gruppo "Oggi" → `due: <oggi>`), e viceversa una proprietà cambiata altrove sposta la card.
 - **v0.5 Card per singolo task**: nodi testo con link al task d'origine. Richiede sync bidirezionale: farlo solo se la card-nota si rivela troppo grossolana.
 - **Più scrivanie**: una per progetto/area, ciascuna con il suo filtro.
-- **Compatibilità** con le date/priorità del plugin Tasks (colore della card in base alla scadenza).
+- **Priorità di Tasks** sulla card (oggi si usano solo scadenza e data pianificata).
 
 ## Domande aperte
 

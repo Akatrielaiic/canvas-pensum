@@ -1,5 +1,6 @@
 import { type App, PluginSettingTab, Setting } from "obsidian";
 import type SpatialTasksPlugin from "./main.ts";
+import { getTasksPlugin } from "./tasks-plugin.ts";
 
 export interface SpatialTasksSettings {
 	deskPath: string;
@@ -7,6 +8,8 @@ export interface SpatialTasksSettings {
 	requiredTag: string;
 	autoSync: boolean;
 	onComplete: "mark" | "remove";
+	colorByDue: boolean;
+	captureNote: string;
 	writeZones: boolean;
 	zoneProperty: string;
 	cardWidth: number;
@@ -20,6 +23,8 @@ export const DEFAULT_SETTINGS: SpatialTasksSettings = {
 	requiredTag: "",
 	autoSync: true,
 	onComplete: "mark",
+	colorByDue: true,
+	captureNote: "Inbox.md",
 	writeZones: false,
 	zoneProperty: "desk-zone",
 	cardWidth: 400,
@@ -92,6 +97,35 @@ export class SpatialTasksSettingTab extends PluginSettingTab {
 						s.onComplete = v as SpatialTasksSettings["onComplete"];
 						await save();
 					}),
+			);
+
+		new Setting(containerEl)
+			.setName("Capture note")
+			.setDesc("Where the “Add task” command writes new tasks. Created on first use.")
+			.addText((t) =>
+				t.setValue(s.captureNote).onChange(async (v) => {
+					s.captureNote = v.trim() || DEFAULT_SETTINGS.captureNote;
+					await save();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Tasks plugin")
+			.setHeading()
+			.setDesc(
+				getTasksPlugin(this.app)
+					? "Detected. The desk follows its global filter, custom statuses and dates, and “Add task” opens its task editor."
+					: "Not installed. The desk works with plain checkboxes; install Tasks for due dates, custom statuses and its task editor.",
+			);
+
+		new Setting(containerEl)
+			.setName("Colour cards by due date")
+			.setDesc("Red when a task in the note is overdue, orange when due or scheduled today. Needs the Tasks plugin.")
+			.addToggle((t) =>
+				t.setValue(s.colorByDue).onChange(async (v) => {
+					s.colorByDue = v;
+					await save();
+				}),
 			);
 
 		new Setting(containerEl).setName("Zones").setHeading();

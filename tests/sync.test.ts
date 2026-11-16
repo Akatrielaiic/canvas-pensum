@@ -105,3 +105,26 @@ test("zones: a card belongs to the smallest labelled group around its centre", (
 		"free.md": null,
 	});
 });
+
+test("due dates colour our cards, but never override a colour the user picked", () => {
+	const today = "2026-11-16";
+	const notes = [
+		{ path: "late.md", open: 1, done: 0, due: "2026-11-10" },
+		{ path: "now.md", open: 1, done: 0, due: today },
+		{ path: "later.md", open: 1, done: 0, due: "2026-12-01" },
+		{ path: "mine.md", open: 1, done: 0, due: "2026-11-10" },
+	];
+	const first = syncDesk(empty(), notes, { ...opts, today });
+	const color = (r: typeof first, p: string) => r.data.nodes.find((x) => x.file === p)!.color;
+	assert.equal(color(first, "late.md"), "1");
+	assert.equal(color(first, "now.md"), "2");
+	assert.equal(color(first, "later.md"), undefined);
+
+	first.data.nodes.find((x) => x.file === "mine.md")!.color = "6";
+	notes[0].due = "2026-12-24"; // rescheduled
+	const second = syncDesk(first.data, notes, { ...opts, today });
+	assert.deepEqual(second.recolored, ["late.md"]);
+	assert.equal(color(second, "late.md"), undefined);
+	assert.equal(color(second, "mine.md"), "6");
+	assert.equal(syncDesk(second.data, notes, { ...opts, today }).changed, false);
+});
