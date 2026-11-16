@@ -1,5 +1,6 @@
 import { type App, PluginSettingTab, Setting } from "obsidian";
 import type CanvasPensumPlugin from "./main.ts";
+import { commandKeys, keyText } from "./help.ts";
 import { getTasksPlugin } from "./tasks-plugin.ts";
 
 export interface CanvasPensumSettings {
@@ -11,6 +12,7 @@ export interface CanvasPensumSettings {
 	growZones: boolean;
 	inheritZoneColor: boolean;
 	colorByDue: boolean;
+	canvasKeys: boolean;
 	captureNote: string;
 	captureDate: boolean;
 	captureDateFormat: string;
@@ -30,6 +32,7 @@ export const DEFAULT_SETTINGS: CanvasPensumSettings = {
 	growZones: true,
 	inheritZoneColor: true,
 	colorByDue: true,
+	canvasKeys: true,
 	captureNote: "Inbox.md",
 	captureDate: true,
 	captureDateFormat: "YYYY-MM-DD",
@@ -56,6 +59,41 @@ export class CanvasPensumSettingTab extends PluginSettingTab {
 			.setDesc(
 				"Every note with open tasks lands on the Pensatorium as a card, first in the Inbox. Drag cards into zones (named groups), or select them and use “Move to zone”. When a note has no open tasks left, its card turns green and moves to Done. “Add task to a note” adds a task from anywhere. The keys are listed in the canvas help (the ? among the canvas controls), and “Add the guide card” puts this explanation on the canvas.",
 			);
+
+		new Setting(containerEl).setName("Keys").setHeading();
+
+		const add = keyText(["Mod", "Shift", "A"]);
+		const move = keyText(["Mod", "Shift", "M"]);
+		new Setting(containerEl)
+			.setName("Keys on the canvas")
+			.setDesc(`On any canvas, ${add} adds a task to a note; on the Pensatorium, ${move} moves the selected cards to a zone. These keys only exist while a canvas is in front, so they can't clash with keys you use elsewhere.`)
+			.addToggle((t) =>
+				t.setValue(s.canvasKeys).onChange(async (v) => {
+					s.canvasKeys = v;
+					await save();
+				}),
+			);
+
+		const bound = commandKeys(this.app, `${this.plugin.manifest.id}:add-task-to-note`).map(keyText);
+		new Setting(containerEl)
+			.setName("Add tasks from anywhere")
+			.setDesc(
+				bound.length
+					? `“Add task to a note” answers to ${bound.join(" / ")} everywhere in Obsidian. Change it in Settings → Hotkeys.`
+					: `Recommended: let ${add} add a task from anywhere in Obsidian, not only from a canvas. You can change the key later in Settings → Hotkeys.`,
+			)
+			.addButton((b) =>
+				b
+					.setButtonText(`Use ${add} everywhere`)
+					.setCta()
+					.setDisabled(bound.length > 0)
+					.onClick(async () => {
+						await this.plugin.bindAddTaskEverywhere();
+						this.display();
+					}),
+			);
+
+		new Setting(containerEl).setName("The Pensatorium").setHeading();
 
 		new Setting(containerEl)
 			.setName("Pensatorium canvas")

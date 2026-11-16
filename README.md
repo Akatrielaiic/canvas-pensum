@@ -21,7 +21,7 @@ Every note that has open tasks (`- [ ]`) lands as a card on one infinite canvas,
 ### Adding tasks
 
 - **Add task to this note** in a card's menu does the same for that card's note, without asking which.
-- **Add task to a note** (**Cmd/Ctrl+Shift+A**, or the button among the canvas controls on the right of the Pensatorium) asks which note, with search. Type a name that doesn't exist and press Enter to create the note. With one card selected, its note is the first suggestion. On the Pensatorium, the empty task is written and the cursor lands on it inside the note's card, so you type it in the note itself, with the Tasks plugin's suggestions. Anywhere else, you type the task in a one-line box and press Enter, without leaving what you were doing. Either way it goes at the top of the note, below the properties and the title, under a heading that links to the day:
+- **Add task to a note** (**Cmd/Ctrl+Shift+A** on any canvas, or the button among the canvas controls on the right of the Pensatorium) asks which note, with search. Type a name that doesn't exist and press Enter to create the note. With one card selected, its note is the first suggestion. On the Pensatorium, the empty task is written and the cursor lands on it inside the note's card, so you type it in the note itself, with the Tasks plugin's suggestions. Anywhere else, you type the task in a one-line box and press Enter, without leaving what you were doing. Either way it goes at the top of the note, below the properties and the title, under a heading that links to the day:
 
   ```markdown
   ### [[2026-11-16]]
@@ -33,6 +33,12 @@ Every note that has open tasks (`- [ ]`) lands as a card on one infinite canvas,
 - Or write `- [ ]` straight in a card: cards are the notes themselves.
 
 <!-- GIF (uncomment when recorded): ![Add task to a note: pick the note, the cursor lands in its card](docs/media/add-task.gif) -->
+
+### Keys
+
+Canvas Pensum sets no global hotkeys of its own. Its keys live on the canvas: **Cmd/Ctrl+Shift+A** adds a task to a note from any canvas, and **Cmd/Ctrl+Shift+M** moves the selected cards to a zone on the Pensatorium. They only exist while a canvas is in front, so they can't clash with keys you use elsewhere, and one setting turns them off.
+
+To add tasks from anywhere in Obsidian, press *Use ⇧⌘A everywhere* in the settings (recommended), or bind any key to *Add task to a note* in Settings → Hotkeys.
 
 ### With the Tasks plugin
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.0
+
+- **Keys moved to the canvas.** Cmd/Ctrl+Shift+A (add a task) and Cmd/Ctrl+Shift+M (move to zone) are no longer default global hotkeys, which Obsidian asks plugins not to set. They now live on the canvas views: A works on any canvas, M on the Pensatorium, and a setting turns them off.
+- **After updating:** Cmd/Ctrl+Shift+A no longer works outside a canvas until you press *Use ⇧⌘A everywhere* in the settings (one click), or bind a key in Settings → Hotkeys.
+
 ## 0.9.1
 
 - *Add task to a note* is listed in the help of every canvas, not only the Pensatorium's.

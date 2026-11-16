@@ -1,12 +1,13 @@
 import {
 	type App,
 	type Editor,
+	type KeymapEventHandler,
+	type Scope,
 	type EventRef,
 	ItemView,
 	type Menu,
 	Modal,
 	Notice,
-	Platform,
 	Plugin,
 	Setting,
 	SuggestModal,
@@ -143,8 +144,8 @@ export default class CanvasPensumPlugin extends Plugin {
 			id: "add-task-to-note",
 			name: "Add task to a note",
 			icon: "list-plus",
-			// A for "add". Free in Obsidian, Canvas and Canvas Arbor; can be changed in Settings → Hotkeys.
-			hotkeys: [{ modifiers: ["Mod", "Shift"], key: "a" }],
+			// No default hotkey (Obsidian asks plugins not to set any): the key works on every canvas
+			// through the view's own scope, and the settings offer to bind it everywhere.
 			callback: () => this.addTaskToNote(),
 		});
 		this.addCommand({ id: "add-guide", name: "Add the guide card", callback: () => this.addGuide() });
@@ -152,10 +153,8 @@ export default class CanvasPensumPlugin extends Plugin {
 		this.addCommand({
 			id: "move-to-zone",
 			name: "Move selected cards to zone",
-			// M for "move". Free in Obsidian, Canvas and Canvas Arbor; can be changed in Settings → Hotkeys.
-			hotkeys: [{ modifiers: ["Mod", "Shift"], key: "m" }],
-			// Obsidian runs only the first command bound to a key, even when it does not apply. Canvas
-			// Arbor binds the same key on every other canvas, so when pressed there we hand over to it.
+			// If the user binds the same hotkey to this command and to Canvas Arbor's, Obsidian runs
+			// only the first of the two, even where it does not apply: so each hands over to the other.
 			checkCallback: (checking) => this.zoneCommand(checking) || (!checking && !!this.arbor()?.zoneCommand?.(false)),
 		});
 
@@ -196,6 +195,7 @@ export default class CanvasPensumPlugin extends Plugin {
 		// A button for it among the canvas controls, on the Pensatorium only.
 		this.registerEvent(this.app.workspace.on("layout-change", () => this.addCanvasButton()));
 		this.register(() => activeDocument.querySelectorAll(".pensum-controls").forEach((el) => el.remove()));
+		this.register(() => this.releaseCanvasKeys());
 
 		// Wait for the layout: before that, the cache fires "changed" for every file in the vault.
 		this.app.workspace.onLayoutReady(() => {
@@ -240,13 +240,20 @@ export default class CanvasPensumPlugin extends Plugin {
 		return active?.file?.path === this.deskPath() && !!this.liveCanvas(this.deskPath());
 	}
 
-	private arbor(): { zoneCommand?(checking: boolean): boolean } | undefined {
-		type Plugins = { plugins?: { plugins?: Record<string, { zoneCommand?(checking: boolean): boolean } | undefined> } };
+	/** The canvas key for "Move to zone", when it is on and applies here. Public for Canvas Arbor, as above. */
+	zoneKey(): boolean {
+		return this.settings.canvasKeys && this.zoneCommand(false);
+	}
+
+	private arbor(): { zoneCommand?(checking: boolean): boolean; zoneKey?(): boolean } | undefined {
+		type Other = { zoneCommand?(checking: boolean): boolean; zoneKey?(): boolean };
+		type Plugins = { plugins?: { plugins?: Record<string, Other | undefined> } };
 		return (this.app as unknown as Plugins).plugins?.plugins?.["canvas-arbor"];
 	}
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+		this.claimCanvasKeys();
 	}
 
 	private deskPath(): string {
@@ -285,8 +292,8 @@ export default class CanvasPensumPlugin extends Plugin {
 		return null;
 	}
 
-	private keysOf(command: string): string {
-		return commandKeys(this.app, `${this.manifest.id}:${command}`).map(keyText).join(" / ");
+	private keysOf(command: string, canvasKey: string[]): string {
+		return this.keysFor(command, canvasKey).map(keyText).join(" / ");
 	}
 
 	/** The guide card, placed above everything already on the canvas. */
@@ -297,7 +304,7 @@ export default class CanvasPensumPlugin extends Plugin {
 		return {
 			id: GUIDE_ID,
 			type: "text",
-			text: guideText(this.keysOf("add-task-to-note"), this.keysOf("move-to-zone")),
+			text: guideText(this.keysOf("add-task-to-note", ["Mod", "Shift", "A"]), this.keysOf("move-to-zone", ["Mod", "Shift", "M"])),
 			x: nodes.length ? Math.min(...nodes.map((n) => n.x)) : 0,
 			y: (nodes.length ? Math.min(...nodes.map((n) => n.y)) : 0) - height - 160,
 			width,
@@ -315,11 +322,11 @@ export default class CanvasPensumPlugin extends Plugin {
 
 	/** Our keys, for the canvas help: adding a task works on any canvas, zones are the Pensatorium's. */
 	private helpRows(): HelpRow[] {
-		const rows: HelpRow[] = [{ label: "Add task to a note", keys: commandKeys(this.app, `${this.manifest.id}:add-task-to-note`) }];
+		const rows: HelpRow[] = [{ label: "Add task to a note", keys: this.keysFor("add-task-to-note", ["Mod", "Shift", "A"]) }];
 		if (this.deskIsActive()) {
 			rows.push({
 				label: "Move the selected cards to a zone (a new name creates it)",
-				keys: commandKeys(this.app, `${this.manifest.id}:move-to-zone`),
+				keys: this.keysFor("move-to-zone", ["Mod", "Shift", "M"]),
 			});
 		}
 		return rows;
@@ -445,7 +452,85 @@ export default class CanvasPensumPlugin extends Plugin {
 		return desk;
 	}
 
+	/** Keys registered on canvas views, per view, so they can be given back. */
+	private viewKeys = new Map<{ scope?: Scope | null }, KeymapEventHandler[]>();
+
+	private releaseCanvasKeys() {
+		for (const [view, handlers] of this.viewKeys) for (const handler of handlers) view.scope?.unregister(handler);
+		this.viewKeys.clear();
+	}
+
+	/**
+	 * Our keys live on each canvas view's own scope, not among Obsidian's global hotkeys: they
+	 * only exist while a canvas is in front, so they can't clash with keys used elsewhere.
+	 * A scope runs only the first handler registered for a key. Canvas Arbor registers the same
+	 * "Move to zone" key, so whichever of the two gets it hands over to the other when needed.
+	 */
+	private claimCanvasKeys() {
+		this.releaseCanvasKeys();
+		if (!this.settings.canvasKeys) return;
+		for (const leaf of this.app.workspace.getLeavesOfType("canvas")) {
+			const view = leaf.view as unknown as { scope?: Scope | null };
+			if (!view.scope) continue;
+			this.viewKeys.set(view, [
+				view.scope.register(["Mod", "Shift"], "a", () => {
+					this.addTaskToNote();
+					return false;
+				}),
+				view.scope.register(["Mod", "Shift"], "m", () => (this.zoneKey() || this.arbor()?.zoneKey?.() ? false : undefined)),
+			]);
+		}
+	}
+
+	/** Binds "Add task to a note" to Cmd/Ctrl+Shift+A everywhere, at the user's request (a settings button). */
+	async bindAddTaskEverywhere(): Promise<void> {
+		type Hotkey = { modifiers: string[]; key: string };
+		type Manager = {
+			customKeys?: Record<string, Hotkey[]>;
+			defaultKeys?: Record<string, Hotkey[]>;
+			setHotkeys?(id: string, keys: Hotkey[]): void;
+			save?(): Promise<void>;
+		};
+		const app = this.app as unknown as {
+			hotkeyManager?: Manager;
+			commands?: { findCommand?(id: string): { name?: string } | undefined };
+			setting?: { open?(): void; openTabById?(id: string): void };
+		};
+		const id = `${this.manifest.id}:add-task-to-note`;
+		const manager = app.hotkeyManager;
+		const wanted: Hotkey = { modifiers: ["Mod", "Shift"], key: "A" };
+		const same = (h: Hotkey) =>
+			h.key?.toLowerCase() === "a" && [...(h.modifiers ?? [])].sort().join() === [...wanted.modifiers].sort().join();
+		if (!manager?.setHotkeys || !manager.save) {
+			// Obsidian changed under us: let the user do it by hand.
+			app.setting?.open?.();
+			app.setting?.openTabById?.("hotkeys");
+			return;
+		}
+		const custom = manager.customKeys ?? {};
+		const taken = Object.entries({ ...manager.defaultKeys, ...custom }).find(([other, keys]) => other !== id && keys?.some(same));
+		if (taken) {
+			const name = app.commands?.findCommand?.(taken[0])?.name ?? taken[0];
+			new Notice(`${keyText(["Mod", "Shift", "A"])} is already used by “${name}”. Choose another key in Settings → Hotkeys.`, 8000);
+			return;
+		}
+		manager.setHotkeys(id, [wanted]);
+		await manager.save();
+		new Notice(`“Add task to a note” now answers to ${keyText(["Mod", "Shift", "A"])} everywhere.`);
+	}
+
+	/** The keys that run a command: the canvas key (when on) and any hotkey bound to it. */
+	private keysFor(command: string, canvasKey: string[]): string[][] {
+		const all = [...(this.settings.canvasKeys ? [canvasKey] : []), ...commandKeys(this.app, `${this.manifest.id}:${command}`)];
+		const seen = new Set<string>();
+		return all.filter((keys) => {
+			const text = keyText(keys).toLowerCase();
+			return !seen.has(text) && !!seen.add(text);
+		});
+	}
+
 	private addCanvasButton() {
+		this.claimCanvasKeys();
 		const path = this.deskPath();
 		for (const leaf of this.app.workspace.getLeavesOfType("canvas")) {
 			const view = leaf.view as unknown as { file?: TFile; containerEl?: HTMLElement };
@@ -460,7 +545,8 @@ export default class CanvasPensumPlugin extends Plugin {
 			const group = controls.createDiv({ cls: "canvas-control-group mod-raised pensum-controls" });
 			const item = group.createDiv({ cls: "canvas-control-item" });
 			setIcon(item, "list-plus");
-			setTooltip(item, `Add task to a note (${Platform.isMacOS ? "⇧⌘A" : "Ctrl+Shift+A"})`, { placement: "left" });
+			const keys = this.keysFor("add-task-to-note", ["Mod", "Shift", "A"])[0];
+			setTooltip(item, keys ? `Add task to a note (${keyText(keys)})` : "Add task to a note", { placement: "left" });
 			item.addEventListener("click", () => this.addTaskToNote());
 		}
 	}
