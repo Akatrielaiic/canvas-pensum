@@ -17,3 +17,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      # Files shared verbatim with Canvas Arbor. A warning, not a failure: when a shared file
+      # changes, one repository is always pushed before the other.
+      - run: npm run check:shared
+        continue-on-error: true

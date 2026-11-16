@@ -21,7 +21,7 @@ Una scrivania infinita dove compaiono da sole tutte le note con cose da fare, e 
 | File | Ruolo | Dipende da Obsidian |
 |---|---|---|
 | `src/scanner.ts` | vault → elenco note con task aperti/chiusi | sì |
-| `src/zone-engine.ts` | zone: piazzare, spostare, riordinare. Pura, copiata identica in Canvas Arbor | no |
+| `src/zone-engine.ts` | zone: piazzare, spostare, riordinare. Pura, copiata identica in Canvas Arbor (`npm run check:shared` verifica che le copie coincidano) | no |
 | `src/capture.ts` | dove va un task catturato dentro una nota. Pura | no |
 | `src/help.ts` | righe nell'aiuto di Canvas. Copiata identica in Canvas Arbor | sì |
 | `src/sync.ts` | (canvas, note) → canvas aggiornato. Funzione pura | no |

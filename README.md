@@ -90,11 +90,14 @@ npm install
 npm run dev    # watch build -> main.js
 npm test       # sync logic, no Obsidian needed
 npm run build  # type-check + production build
+npm run check:shared  # the files shared verbatim with Canvas Arbor still match
 ```
 
 To try it, clone (or symlink) this folder into `<vault>/.obsidian/plugins/canvas-pensum/` and enable the plugin. Use a test vault.
 
 Releasing: `npm version patch`, then push the tag; the release workflow attaches `main.js` and `manifest.json`.
+
+What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
 Design notes and roadmap: [docs/FRAMEWORK.md](docs/FRAMEWORK.md) (Italian).
 
