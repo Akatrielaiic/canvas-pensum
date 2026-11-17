@@ -25,7 +25,7 @@ import { insertAtTop, insertUnderHeading, notePath } from "./capture.ts";
 import { type HelpRow, commandKeys, keyText, watchCanvasHelp } from "./help.ts";
 import { scanVault } from "./scanner.ts";
 import { DEFAULT_SETTINGS, type CanvasPensumSettings, CanvasPensumSettingTab } from "./settings.ts";
-import { DONE_ID, INBOX_ID, type Layout, type SyncResult, addMapZone, addZone, balanceZoneMaps, linkZonesTo, moveMapZone, moveToZone, syncDesk, zonesOrbitInbox } from "./sync.ts";
+import { DONE_ID, INBOX_ID, type Home, type Layout, type SyncResult, addMapZone, addZone, balanceZoneMaps, linkZonesTo, moveMapZone, moveToZone, subtrees, syncDesk, zonesOrbitInbox } from "./sync.ts";
 import { TASKS_CACHE_EVENT, getTasksPlugin } from "./tasks-plugin.ts";
 import { computeZones } from "./zones.ts";
 
@@ -148,7 +148,7 @@ export default class CanvasPensumPlugin extends Plugin {
 	/** Notes with a task being written in their card: kept on the desk even while the task is still empty. */
 	private capturing = new Map<string, number>();
 	/** Which zone each card was in at the last sync, so a zone dropped over another doesn't take its cards. */
-	private homes?: Map<string, string>;
+	private homes?: Map<string, Home>;
 	/** Re-run the sync shortly (the desk changed, or an update had to wait). */
 	private syncSoon = debounce(() => this.sync(false), 1000, true);
 
@@ -522,10 +522,14 @@ export default class CanvasPensumPlugin extends Plugin {
 				const desk = await this.getDesk(false);
 				if (!desk) return;
 				await this.editDesk(desk, (data) => {
-					// The moved cards belong to that zone now, whatever it overlaps until it is tidied.
+					// The moved cards, with what hangs off them, belong to that zone now, whatever it overlaps.
 					const keep = (zoneId: string) => {
 						this.homes ??= new Map();
-						for (const id of ids) this.homes.set(id, zoneId);
+						const subtree = subtrees(data);
+						for (const id of ids) {
+							const card = data.nodes.find((n) => n.id === id && n.type !== "group");
+							for (const n of card ? subtree(card) : []) this.homes.set(n.id, { zone: zoneId });
+						}
 					};
 					if (typeof pick !== "string") {
 						keep(pick.id);

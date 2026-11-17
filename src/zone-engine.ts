@@ -1,8 +1,10 @@
 // Zone engine: pure functions over JSON Canvas data (https://jsoncanvas.org). No Obsidian imports.
 //
 // A zone is a group. A card belongs to the innermost zone around its centre; the cards its
-// arrows lead to belong there too. This file places cards in zones, moves them between zones
-// and keeps zones wrapped around their contents without overlaps.
+// arrows lead to belong there too. Once known, that only changes by hand: a card dragged into or
+// out of a zone, or moved with Move to zone. Tidying never changes it: zones wrap what belongs
+// to them, and cards that belong to none are pushed out of the way. This file places cards in
+// zones, moves them between zones and keeps zones wrapped around their contents without overlaps.
 //
 // Zone maps: zones joined by arrows (zone to zone) form a tree, laid out like a mind map around
 // its root zone: children to the right or left, siblings stacked, evenly spaced.
@@ -246,49 +248,93 @@ function separate(units: Unit[], pad: number, pinned: Set<string>): void {
 }
 
 /**
- * Makes every zone hold what belongs to it without overlaps. In place.
- *
- * A card belongs to the innermost zone around its centre. Cards its arrows lead to belong there
- * too, unless they already sit in a zone of their own. Cards joined by arrows move as one piece.
- * A zone wraps its contents, growing and shrinking with them; zones that end up overlapping
- * are pushed apart with everything in them.
- *
- * `stay`: where each card was last time (card id -> zone id, as returned). A card stays in that
- * zone while its centre is still inside it, even if another zone was dropped over it.
- * Returns where each card is now.
+ * Pushes each of `units` off the `fixed` ones, to the right or down; `fixed` don't move and the
+ * units don't push each other. Used for cards in no zone, which never end up inside one.
  */
-export function tidyZones(data: CanvasData, layout: Layout, pinned: string[] = [], stay?: Map<string, string>): Map<string, string> {
-	const pad = layout.gap / 2;
-	const pins = new Set(pinned);
-	const groups = groupsBySize(data);
-	const cards = data.nodes.filter((n) => n.type !== "group");
-	const parent = enclosing(data, groups);
-	const home = homes(data, groups, parent, stay);
+function pushOff(units: Unit[], fixed: Unit[], pad: number): void {
+	const walls = fixed.flatMap((u) => u.solid);
+	for (const unit of units) {
+		for (let guard = 0; guard < 500; guard++) {
+			let dx = 0;
+			let dy = 0;
+			for (const a of walls) {
+				for (const b of unit.solid) {
+					if (!intersects(a, b)) continue;
+					dx = Math.max(dx, a.x + a.width + pad - b.x);
+					dy = Math.max(dy, a.y + a.height + pad - b.y);
+				}
+			}
+			if (!dx && !dy) break;
+			for (const n of unit.nodes) {
+				if (dx <= dy) n.x += dx;
+				else n.y += dy;
+			}
+		}
+	}
+}
 
+/** Where a card belongs, as remembered between tidies: its zone (none if missing) and where it was. */
+export interface Home {
+	zone?: string;
+	x?: number;
+	y?: number;
+}
+
+/** Cards joined by arrows, among `members`, as pieces that move as one. */
+function piecesOf(members: CanvasNode[], data: CanvasData): Unit[] {
 	const linked = new Map<string, string[]>();
 	for (const e of data.edges) {
 		linked.set(e.fromNode, [...(linked.get(e.fromNode) ?? []), e.toNode]);
 		linked.set(e.toNode, [...(linked.get(e.toNode) ?? []), e.fromNode]);
 	}
+	const byId = new Map(members.map((c) => [c.id, c]));
+	const seen = new Set<string>();
+	const units: Unit[] = [];
+	for (const start of members) {
+		if (seen.has(start.id)) continue;
+		seen.add(start.id);
+		const piece = [start];
+		for (const node of piece) {
+			for (const id of linked.get(node.id) ?? []) {
+				const next = byId.get(id);
+				if (!next || seen.has(id)) continue;
+				seen.add(id);
+				piece.push(next);
+			}
+		}
+		units.push({ nodes: piece, solid: piece });
+	}
+	return units;
+}
+
+/** What to remember for next time: each card's zone and where it is now. */
+const homesOut = (data: CanvasData, home: Map<CanvasNode, CanvasNode>): Map<string, Home> =>
+	new Map(data.nodes.filter((n) => n.type !== "group").map((c) => [c.id, { zone: home.get(c)?.id, x: c.x, y: c.y }]));
+
+/**
+ * Makes every zone hold what belongs to it without overlaps. In place.
+ *
+ * A card belongs to the innermost zone around its centre. Cards its arrows lead to belong there
+ * too, unless they already sit in a zone of their own. Cards joined by arrows move as one piece.
+ * A zone wraps its contents, growing and shrinking with them; zones that end up overlapping
+ * are pushed apart with everything in them, and cards in no zone are pushed out of every zone.
+ *
+ * `stay`: where each card was last time, as returned. A card keeps that zone, or stays out of
+ * every zone, until it is moved by hand: its position changed since, or (when given) it is in
+ * `moved`. A new card under another (an arrow leads to it) takes that card's zone.
+ * Returns where each card is now.
+ */
+export function tidyZones(data: CanvasData, layout: Layout, pinned: string[] = [], stay?: Map<string, Home>, moved?: Set<string>): Map<string, Home> {
+	const pad = layout.gap / 2;
+	const pins = new Set(pinned);
+	const groups = groupsBySize(data);
+	const cards = data.nodes.filter((n) => n.type !== "group");
+	const parent = enclosing(data, groups);
+	const home = homes(data, groups, parent, stay, moved);
+
 	const contents = new Map<CanvasNode, CanvasNode[]>();
 	const unitsIn = (zone: CanvasNode | undefined): Unit[] => {
-		const units: Unit[] = [];
-		const members = new Map(cards.filter((c) => zone && home.get(c) === zone).map((c) => [c.id, c]));
-		const seen = new Set<string>();
-		for (const start of members.values()) {
-			if (seen.has(start.id)) continue;
-			seen.add(start.id);
-			const piece = [start];
-			for (const node of piece) {
-				for (const id of linked.get(node.id) ?? []) {
-					const next = members.get(id);
-					if (!next || seen.has(id)) continue;
-					seen.add(id);
-					piece.push(next);
-				}
-			}
-			units.push({ nodes: piece, solid: piece });
-		}
+		const units = zone ? piecesOf(cards.filter((c) => home.get(c) === zone), data) : [];
 		for (const g of groups) {
 			if (parent.get(g) === zone) units.push({ nodes: [g, ...(contents.get(g) ?? [])], solid: [g] });
 		}
@@ -332,29 +378,60 @@ export function tidyZones(data: CanvasData, layout: Layout, pinned: string[] = [
 		}
 	}
 	separate(top, pad, pins);
-	return new Map([...home].map(([card, zone]) => [card.id, zone.id]));
+	pushOff(piecesOf(cards.filter((c) => !home.has(c)), data), top, pad);
+	return homesOut(data, home);
 }
 
 /**
- * Which zone each card belongs to: the zone it was in last time (`stay`) while its centre is still
- * inside it, else the innermost zone around its centre, else the zone of the card its arrows come from.
+ * Which zone each card belongs to. A card remembered in `stay` keeps its zone (or no zone) unless
+ * it was moved by hand; then, the zone it was in while its centre is still inside it, else the
+ * innermost zone around its centre. A card not remembered yet: under another card (once an
+ * earlier tidy is remembered), that card's zone; else the innermost zone around it, else the zone
+ * of the card its arrows come from.
  */
-function homes(data: CanvasData, groups: CanvasNode[], parent: Map<CanvasNode, CanvasNode | undefined>, stay?: Map<string, string>): Map<CanvasNode, CanvasNode> {
+function homes(
+	data: CanvasData,
+	groups: CanvasNode[],
+	parent: Map<CanvasNode, CanvasNode | undefined>,
+	stay?: Map<string, Home>,
+	moved?: Set<string>,
+): Map<CanvasNode, CanvasNode> {
 	const byId = new Map(groups.map((g) => [g.id, g]));
+	const isCard = new Set(data.nodes.filter((n) => n.type !== "group").map((n) => n.id));
+	const under = new Set(data.edges.filter((e) => isCard.has(e.fromNode) && e.fromNode !== e.toNode).map((e) => e.toNode));
+	// Remembered from an earlier tidy (records with a position), not only cards placed just now.
+	const known = [...(stay?.values() ?? [])].some((h) => h.x !== undefined);
 	const home = new Map<CanvasNode, CanvasNode>();
+	const decided = new Set<CanvasNode>();
 	for (const card of data.nodes) {
 		if (card.type === "group") continue;
-		const before = byId.get(stay?.get(card.id) ?? "");
-		// The zone it was in, unless it was dropped into a zone inside that one.
+		const was = stay?.get(card.id);
 		const inner = zoneOf(card, groups);
-		const keep = before && centreInside(card, before) && (!inner || !within(inner, before, parent));
-		const zone = keep ? before : inner;
-		if (zone) home.set(card, zone);
+		let zone: CanvasNode | undefined;
+		if (was) {
+			const before = was.zone === undefined ? undefined : byId.get(was.zone);
+			const gone = was.zone !== undefined && !before;
+			const byHand = moved
+				? moved.has(card.id)
+				: was.x !== undefined && was.y !== undefined && (Math.abs(was.x - card.x) > 1 || Math.abs(was.y - card.y) > 1);
+			// Moved by hand: the zone it was in, unless it was dropped into a zone inside that one.
+			const keep = before && centreInside(card, before) && (!inner || !within(inner, before, parent));
+			zone = byHand || gone ? (keep ? before : inner) : before;
+			decided.add(card);
+		} else if (known && under.has(card.id)) {
+			continue; // new, under another card: takes its zone below
+		} else {
+			zone = inner;
+		}
+		if (zone) {
+			home.set(card, zone);
+			decided.add(card);
+		}
 	}
 	const subtree = subtrees(data);
-	const byPosition = new Set(home.keys());
-	for (const card of byPosition) {
-		for (const below of subtree(card, (n) => byPosition.has(n)).slice(1)) {
+	const fixed = new Set(decided);
+	for (const card of home.keys()) {
+		for (const below of subtree(card, (n) => fixed.has(n)).slice(1)) {
 			if (!home.has(below)) home.set(below, home.get(card) as CanvasNode);
 		}
 	}
@@ -551,15 +628,19 @@ function arrange(data: CanvasData, layout: Layout, contents: Map<CanvasNode, Can
 
 /**
  * Lays out the zone maps on their own, without wrapping zones around their cards or pushing
- * anything else apart. In place. For canvases where zones don't follow their contents.
- * `stay` and the result: where each card is, as for tidyZones.
+ * other zones apart. In place. For canvases where zones don't follow their contents. Cards in no
+ * zone are still pushed out of the map zones. `stay`, `moved` and the result: as for tidyZones.
  */
-export function arrangeZoneMaps(data: CanvasData, layout: Layout, stay?: Map<string, string>): Map<string, string> {
+export function arrangeZoneMaps(data: CanvasData, layout: Layout, stay?: Map<string, Home>, moved?: Set<string>): Map<string, Home> {
 	const groups = groupsBySize(data);
 	const parent = enclosing(data, groups);
-	const home = homes(data, groups, parent, stay);
-	arrange(data, layout, contentsOf(home, groups, parent));
-	return new Map([...home].map(([card, zone]) => [card.id, zone.id]));
+	const home = homes(data, groups, parent, stay, moved);
+	const contents = contentsOf(home, groups, parent);
+	arrange(data, layout, contents);
+	const inMap = mapped(data);
+	const maps = groups.filter((g) => inMap.has(g.id)).map((g) => ({ nodes: [g, ...(contents.get(g) ?? [])], solid: [g] }));
+	if (maps.length) pushOff(piecesOf(data.nodes.filter((n) => n.type !== "group" && !home.has(n)), data), maps, layout.gap / 2);
+	return homesOut(data, home);
 }
 
 /** The root's arrows clockwise: down the right side, then up the left one. */

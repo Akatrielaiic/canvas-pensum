@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.15.0
+
+- **Zones no longer take cards that aren't theirs.** A card changes zone only when you drag it in or out, or use *Move to zone…*. A zone that grows, or a new zone, pushes cards in no zone out of the way instead of taking them; cards in a zone stay in it.
+- Cards already taken by a zone before this version stay there: drag them out once.
+
 ## 0.14.0
 
 - **New zones are placed and balanced exactly as Canvas Arbor places mind map nodes.** A new zone round the Inbox goes on the side that takes less room (counting the zones below each one), the next one clockwise when added with Shift+Enter. From five zones round the Inbox on, the two sides are evened out whenever one is added (Done included), and Alt+Up / Alt+Down trade places with the next zone round.

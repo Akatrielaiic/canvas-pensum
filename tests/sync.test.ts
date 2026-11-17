@@ -470,11 +470,31 @@ test("zone map: a card stays in its zone when another zone is dropped over it", 
 		n.y += dy;
 	}
 	const after = syncDesk(data, notes, { ...opts, growZones: true, stay: r.homes });
-	assert.equal(after.homes!.get("st-a"), "a");
-	assert.equal(after.homes!.get("st-b"), "b");
+	assert.equal(after.homes!.get("st-a")?.zone, "a");
+	assert.equal(after.homes!.get("st-b")?.zone, "b");
 	assert.deepEqual(
 		after.data.nodes.filter((x) => x.type === "group").map((g) => [g.id, g.x, g.y]),
 		r.data.nodes.filter((x) => x.type === "group").map((g) => [g.id, g.x, g.y]),
 		"A goes back to its place",
 	);
+});
+
+test("a card in no zone is pushed out of a zone that grows over it, and a dragged card changes zone", () => {
+	const grow = { ...opts, growZones: true };
+	let r = syncDesk(empty(), [note("a.md")], grow);
+	const inbox = () => r.data.nodes.find((x) => x.id === INBOX_ID)!;
+	r.data.nodes.push({ id: "memo", type: "text", x: inbox().x + inbox().width + 60, y: inbox().y, width: 300, height: 100 });
+	r = syncDesk(r.data, [note("a.md")], { ...grow, stay: r.homes });
+	assert.equal(r.homes!.get("memo")?.zone, undefined);
+	// Three more notes: the Inbox grows to the right, over the memo.
+	const notes = [note("a.md"), note("b.md"), note("c.md"), note("d.md")];
+	r = syncDesk(r.data, notes, { ...grow, stay: r.homes });
+	const memo = () => r.data.nodes.find((x) => x.id === "memo")!;
+	assert.equal(r.homes!.get("memo")?.zone, undefined, "the memo stays out of the Inbox");
+	assert.ok(!overlap(inbox(), memo()), "and is pushed out of it");
+	assert.equal(syncDesk(r.data, notes, { ...grow, stay: r.homes }).changed, false);
+	// Dragged into the Inbox by hand: it joins.
+	Object.assign(memo(), { x: inbox().x + 20, y: inbox().y + 20 });
+	r = syncDesk(r.data, notes, { ...grow, stay: r.homes });
+	assert.equal(r.homes!.get("memo")?.zone, INBOX_ID);
 });

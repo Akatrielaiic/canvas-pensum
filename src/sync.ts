@@ -10,6 +10,7 @@
 import {
 	type CanvasData,
 	type CanvasNode,
+	type Home,
 	type Layout,
 	arrangeZoneMaps,
 	centreInside,
@@ -24,7 +25,7 @@ import {
 	zoneParents,
 } from "./zone-engine.ts";
 
-export { type Layout, addMapZone, addZone, balanceZoneMaps, linkZonesTo, moveMapZone, moveToZone, placeIn, tidyZones } from "./zone-engine.ts";
+export { type Home, type Layout, addMapZone, addZone, balanceZoneMaps, linkZonesTo, moveMapZone, moveToZone, placeIn, subtrees, tidyZones } from "./zone-engine.ts";
 
 // "st-" dates from the plugin's first name (Spatial Tasks). Kept so existing desks keep working.
 export const MANAGED_PREFIX = "st-";
@@ -55,8 +56,8 @@ export interface SyncOptions extends Layout {
 	growZones?: boolean;
 	/** Ids of cards that should stay put when overlaps are resolved (the ones the user is working on). */
 	pinned?: string[];
-	/** Where each card was at the last sync (card id -> zone id): it stays there while it is still inside. */
-	stay?: Map<string, string>;
+	/** Where each card was at the last sync (`homes`): it keeps that zone, or no zone, until it is dragged. */
+	stay?: Map<string, Home>;
 	/** Whether a path still exists in the vault. Cards of deleted notes are removed. */
 	exists?: (path: string) => boolean;
 	newId?: () => string;
@@ -80,8 +81,8 @@ export interface SyncResult {
 	completed: string[];
 	reopened: string[];
 	removed: string[];
-	/** Where each card is now (card id -> zone id), to pass back as `stay` next time. */
-	homes?: Map<string, string>;
+	/** Where each card is now (its zone and position), to pass back as `stay` next time. */
+	homes?: Map<string, Home>;
 }
 
 export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions): SyncResult {
@@ -101,7 +102,7 @@ export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions
 	const stay = new Map(opts.stay);
 	const put = (block: CanvasNode[], group: CanvasNode) => {
 		placeBlock(data, block, group, opts);
-		for (const n of block) stay.set(n.id, group.id);
+		for (const n of block) stay.set(n.id, { zone: group.id });
 	};
 	const place = (node: CanvasNode, group: CanvasNode) => put([node], group);
 
