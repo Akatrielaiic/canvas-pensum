@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.0
+
+- **The zone map goes clockwise round the Inbox**: on the right from top to bottom, on the left from bottom to top. Deeper zones go top to bottom, as in Canvas Arbor's mind maps. New zones follow it: Shift+Tab on the Inbox adds a zone at the end of the lighter side; Shift+Enter adds the next one (clockwise round the Inbox, so above it on the left; below it deeper down).
+- **Alt+Up / Alt+Down** move a zone one step; a zone joined to the Inbox goes round it, past the top or the bottom of its column to the same end of the other side. Alt+Left / Alt+Right no longer do anything.
+- Fixed: moving a zone with Alt+Up / Alt+Down, or adding one between two others, didn't stick: the zones went back to their old order.
+- **After updating:** zones on the left of the Inbox read from the bottom up, so the ones already there are shown in reverse once. Put them back in order with Alt+Up / Alt+Down if needed.
+
 ## 0.12.0
 
 - **The zone map keeps its order.** The order and side of each zone are kept in its arrow, so a zone dragged out of place goes back instead of overlapping another one and taking its cards. To reorder, select the zone and press **Alt+Up / Alt+Down** (before or after its neighbour) or **Alt+Left / Alt+Right** (to the other side of the Inbox).

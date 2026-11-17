@@ -408,8 +408,10 @@ function contentsOf(home: Map<CanvasNode, CanvasNode>, groups: CanvasNode[], par
 //
 // A zone map is a tree of zones joined by arrows. The arrows hold its shape: an arrow leaving its
 // zone on the left puts the child on the left, and siblings come in the order of their arrows in
-// the file. Nothing depends on where the zones happen to be, so a zone dragged out of place goes
-// back; Alt+arrow keys (moveMapZone) change the order and the side.
+// the file: the root's children clockwise round it (top to bottom on the right, bottom to top on
+// the left), deeper zones top to bottom on either side, as in Canvas Arbor's mind maps.
+// Nothing depends on where the zones happen to be, so a zone dragged out of place goes back;
+// Alt+Up / Alt+Down (moveMapZone) change the order, and for the root's children the side too.
 
 /** One arrow of a zone map: the edge, and the parent and child zone ids. */
 interface MapArrow {
@@ -477,7 +479,8 @@ function sideOf(arrow: MapArrow, byId: Map<string, CanvasNode>): 1 | -1 {
 /**
  * Lays out every zone map: the root stays where it is; its children go to the side their arrows
  * leave it from, deeper zones keep their parent's side. Each level is a column, siblings stacked
- * in the order of their arrows and centred on their parent. Every zone takes its contents along.
+ * in the order of their arrows and centred on their parent: the root's children clockwise (on the
+ * left the first is at the bottom), deeper zones top to bottom. Every zone takes its contents along.
  */
 function arrange(data: CanvasData, layout: Layout, contents: Map<CanvasNode, CanvasNode[]>): void {
 	const arrows = mapArrows(data);
@@ -512,11 +515,11 @@ function arrange(data: CanvasData, layout: Layout, contents: Map<CanvasNode, Can
 			m.y += dy;
 		}
 	};
-	const place = (p: CanvasNode, list: CanvasNode[], dir: 1 | -1) => {
+	const place = (p: CanvasNode, list: CanvasNode[], dir: 1 | -1, round = false) => {
 		if (!list.length) return;
 		const total = list.reduce((sum, k) => sum + bandOf(k), 0) + along * (list.length - 1);
 		let top = centreY(p) - total / 2;
-		for (const k of list) {
+		for (const k of round && dir < 0 ? [...list].reverse() : list) {
 			const size = bandOf(k);
 			moveTo(k, dir > 0 ? p.x + p.width + across : p.x - across - k.width, top + size / 2 - k.height / 2);
 			place(k, (kids.get(k) ?? []).map((c) => c.node), dir);
@@ -526,7 +529,7 @@ function arrange(data: CanvasData, layout: Layout, contents: Map<CanvasNode, Can
 	for (const root of [...kids.keys()].filter((n) => !hasParent.has(n.id))) {
 		const list = kids.get(root) ?? [];
 		place(root, list.filter((k) => k.side > 0).map((k) => k.node), 1);
-		place(root, list.filter((k) => k.side < 0).map((k) => k.node), -1);
+		place(root, list.filter((k) => k.side < 0).map((k) => k.node), -1, true);
 	}
 }
 
@@ -546,10 +549,10 @@ export function arrangeZoneMaps(data: CanvasData, layout: Layout, stay?: Map<str
 const sides = (dir: 1 | -1) => (dir > 0 ? { fromSide: "right", toSide: "left" } : { fromSide: "left", toSide: "right" });
 
 /**
- * Adds an empty zone to a zone map, joined by an arrow: a child of `fromId` (beside it), or its
- * sibling (just below it; a sibling of a root is a child of it). A root's new child goes on the
- * side with less in it; deeper zones keep their parent's side. The map is laid out again.
- * Null if `fromId` is not a zone.
+ * Adds an empty zone to a zone map, joined by an arrow: a child of `fromId` (beside it, last
+ * clockwise round a root, else last), or its sibling (next to it: clockwise round a root, so above
+ * on its left; below anywhere else; a sibling of a root is a child of it). A root's new child goes on the side with less in it;
+ * deeper zones keep their parent's side. The map is laid out again. Null if `fromId` is not a zone.
  */
 export function addMapZone(
 	input: CanvasData,
@@ -602,34 +605,45 @@ export function addMapZone(
 }
 
 /**
- * Moves a zone within its map: "up" / "down" before or after the sibling on its side, "left" /
- * "right" to the other side of the root (for the root's own children; it goes last there).
+ * Moves a zone one step up or down beside its siblings. A child of the root goes round it
+ * clockwise: past the top or the bottom of its column it moves to the same end of the other side.
  * Changes the order and sides of the arrows, then lays the map out again. Null if nothing moves.
  */
-export function moveMapZone(input: CanvasData, zoneId: string, where: "up" | "down" | "left" | "right", layout: Layout): CanvasData | null {
+export function moveMapZone(input: CanvasData, zoneId: string, where: "up" | "down", layout: Layout): CanvasData | null {
 	const data = clone(input);
 	const byId = new Map(data.nodes.map((n) => [n.id, n]));
 	const arrows = mapArrows(data);
 	const mine = arrows.find((a) => a.to === zoneId);
 	if (!mine) return null;
-	const side = sideOf(mine, byId);
 	const isRootChild = !arrows.some((a) => a.to === mine.from);
-	if (where === "left" || where === "right") {
-		const want = where === "left" ? -1 : 1;
-		if (!isRootChild || want === side) return null;
-		Object.assign(mine.edge, sides(want));
-		const own = arrows.filter((a) => a.from === mine.from && a !== mine && sideOf(a, byId) === want);
-		const last = own[own.length - 1]?.edge;
-		data.edges.splice(data.edges.indexOf(mine.edge), 1);
-		data.edges.splice(last ? data.edges.indexOf(last) + 1 : data.edges.length, 0, mine.edge);
+	const siblings = arrows.filter((a) => a.from === mine.from);
+	const sideOfKid = (a: MapArrow): 1 | -1 => {
+		if (isRootChild) return sideOf(a, byId);
+		const above = arrows.find((x) => x.to === mine.from);
+		return above ? sideOf(above, byId) : 1;
+	};
+	// Each side top to bottom, as on screen.
+	const right = siblings.filter((a) => sideOfKid(a) > 0);
+	const leftInFile = siblings.filter((a) => sideOfKid(a) < 0);
+	const left = isRootChild ? [...leftInFile].reverse() : leftInFile;
+	const side = sideOfKid(mine);
+	const column = side > 0 ? right : left;
+	const i = column.indexOf(mine);
+	const j = i + (where === "up" ? -1 : 1);
+	if (j >= 0 && j < column.length) {
+		[column[i], column[j]] = [column[j], column[i]];
 	} else {
-		const row = arrows.filter((a) => a.from === mine.from && (!isRootChild || sideOf(a, byId) === side));
-		const other = row[row.indexOf(mine) + (where === "up" ? -1 : 1)];
-		if (!other) return null;
-		const i = data.edges.indexOf(mine.edge);
-		const j = data.edges.indexOf(other.edge);
-		[data.edges[i], data.edges[j]] = [data.edges[j], data.edges[i]];
+		if (!isRootChild) return null;
+		// Off the end of the column: over to the same end of the other side.
+		column.splice(i, 1);
+		const other = side > 0 ? left : right;
+		if (where === "up") other.unshift(mine);
+		else other.push(mine);
+		Object.assign(mine.edge, sides(side > 0 ? -1 : 1));
 	}
+	// Write the arrows back where the siblings' arrows were: right top to bottom, then the left (bottom to top round a root).
+	const slots = siblings.map((a) => data.edges.indexOf(a.edge)).sort((a, b) => a - b);
+	[...right, ...(isRootChild ? [...left].reverse() : left)].forEach((a, k) => (data.edges[slots[k]] = a.edge));
 	arrangeZoneMaps(data, layout);
 	return data;
 }
@@ -654,7 +668,12 @@ export function linkZonesTo(input: CanvasData, rootId: string, options: { newId?
 			const r = roots.get(g.id);
 			return r !== mine && (!r || r === g.id); // not in this map, not below another root
 		})
-		.sort((a, b) => centreY(a) - centreY(b) || (a.id < b.id ? -1 : 1));
+		// Clockwise, as the map reads them: right top to bottom, then left bottom to top.
+		.sort((a, b) => {
+			const side = (g: CanvasNode) => (centreX(g) >= centreX(root) ? 0 : 1);
+			const flip = side(a) ? -1 : 1;
+			return side(a) - side(b) || flip * (centreY(a) - centreY(b)) || (a.id < b.id ? -1 : 1);
+		});
 	for (const g of join) {
 		data.edges.push({ id: newId(), fromNode: root.id, toNode: g.id, ...sides(centreX(g) >= centreX(root) ? 1 : -1) });
 	}

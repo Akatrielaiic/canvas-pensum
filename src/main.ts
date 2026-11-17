@@ -40,6 +40,8 @@ interface LiveCanvas {
 	zoomToBbox?(box: { minX: number; minY: number; maxX: number; maxY: number }): void;
 	panIntoView?(box: { minX: number; minY: number; maxX: number; maxY: number }): void;
 	selectOnly?(node: LiveNode): void;
+	edges?: Map<string, unknown>;
+	removeEdge?(edge: unknown): void;
 	wrapperEl?: HTMLElement;
 }
 
@@ -62,7 +64,7 @@ function guideText(addTask: string, moveToZone: string): string {
 		"",
 		"- **Inbox**: new cards arrive there. Drag them wherever you like.",
 		`- **Zones**: named groups, like *Today* or *Waiting*. Select cards and use *Move to zone…*${key(moveToZone)}; type a new name to create a zone. A zone wraps its cards and gives them its colour.`,
-		"- **Zone map**: zones joined to the Inbox by arrows sit around it, evenly spaced, and make room for each other as they grow. Select a zone and press Shift+Tab for a zone beside it, Shift+Enter for one below it; Alt+arrows move it up, down or to the other side.",
+		"- **Zone map**: zones joined to the Inbox by arrows sit around it, evenly spaced, and make room for each other as they grow. Select a zone and press Shift+Tab for a zone beside it, Shift+Enter for one below it; Alt+Up / Alt+Down move it round the Inbox.",
 		"- **Done**: when a note has no open tasks left, its card turns green and moves there. Delete cards from Done freely: the notes stay.",
 		`- **New task**: *Add task to a note*${key(addTask)}, or the button among the canvas controls. Pick a note and type.`,
 		"- **Arrows**: cards joined by arrows travel together.",
@@ -120,6 +122,14 @@ function applyLive(live: LiveCanvas, next: CanvasData): boolean {
 		});
 	} else {
 		if ([...(nodes?.values() ?? [])].some((n) => n.isEditing)) return false;
+		// setData keeps the arrows it already has in their old order, and the order of the arrows
+		// between zones is the order of the zone map: when it changes, take them out first.
+		const nextIds = new Set(next.edges.map((e) => e.id));
+		const both = new Set(current.edges.map((e) => e.id).filter((id) => nextIds.has(id)));
+		const order = (edges: CanvasData["edges"]) => edges.filter((e) => both.has(e.id)).map((e) => e.id).join();
+		if (live.edges && live.removeEdge && order(current.edges) !== order(next.edges)) {
+			for (const [id, edge] of [...live.edges]) if (nextIds.has(id)) live.removeEdge(edge);
+		}
 		live.setData(next);
 	}
 	live.requestSave();
@@ -347,8 +357,7 @@ export default class CanvasPensumPlugin extends Plugin {
 			});
 			rows.push({ label: "New zone beside the selected zone", keys: [["Shift", "Tab"]] });
 			rows.push({ label: "New zone below the selected zone", keys: [["Shift", "Enter"]] });
-			rows.push({ label: "Move the selected zone before or after its neighbour", keys: [["Alt", "↑ ↓"]] });
-			rows.push({ label: "Move the selected zone to the other side of the Inbox", keys: [["Alt", "← →"]] });
+			rows.push({ label: "Move the selected zone up or down; round the Inbox at the top and bottom", keys: [["Alt", "↑ ↓"]] });
 		}
 		return rows;
 	}
@@ -424,12 +433,11 @@ export default class CanvasPensumPlugin extends Plugin {
 	/**
 	 * On the Pensatorium, with one zone selected: Shift+Tab adds a zone beside it (its child in the
 	 * map), Shift+Enter one below it (its sibling); the new zone is selected with its name open for
-	 * typing. Alt+Up / Alt+Down move the zone before or after its sibling, Alt+Left / Alt+Right to
-	 * the other side of the Inbox.
+	 * typing. Alt+Up / Alt+Down move the zone one step, round the Inbox at the top and bottom.
 	 */
 	private onZoneKey(evt: KeyboardEvent) {
 		if (evt.defaultPrevented || evt.isComposing || evt.ctrlKey || evt.metaKey) return;
-		const arrow = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" }[evt.key] as "up" | "down" | "left" | "right" | undefined;
+		const arrow = { ArrowUp: "up", ArrowDown: "down" }[evt.key] as "up" | "down" | undefined;
 		const add = evt.shiftKey && !evt.altKey && (evt.key === "Tab" || evt.key === "Enter");
 		const move = evt.altKey && !evt.shiftKey && !!arrow;
 		if (!add && !move) return;
