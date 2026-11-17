@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { CanvasData } from "../src/canvas.ts";
-import { DONE_ID, INBOX_ID, type SyncOptions, addZone, moveToZone, syncDesk, tidyZones } from "../src/sync.ts";
+import { DONE_ID, INBOX_ID, type SyncOptions, addMapZone, addZone, linkZonesTo, moveToZone, syncDesk, tidyZones, zonesOrbitInbox } from "../src/sync.ts";
 import { centreInside, computeZones } from "../src/zones.ts";
 
 let n = 0;
@@ -407,4 +407,39 @@ test("tidy: a zone shrinks when cards leave or get smaller, down to the size of 
 	const settled = JSON.stringify(data);
 	tidyZones(data, opts);
 	assert.equal(JSON.stringify(data), settled, "stable");
+});
+
+test("zone map: a new Pensatorium's Done zone is joined to the Inbox and sits beside it", () => {
+	const first = syncDesk(empty(), [note("a.md"), note("b.md")], { ...opts, onComplete: "move", growZones: true });
+	assert.ok(zonesOrbitInbox(first.data), "only the Inbox: zones will orbit it");
+	const second = syncDesk(first.data, [note("a.md", 0, 1), note("b.md")], { ...opts, onComplete: "move", growZones: true });
+	const inbox = second.data.nodes.find((x) => x.id === INBOX_ID)!;
+	const done = second.data.nodes.find((x) => x.id === DONE_ID)!;
+	assert.ok(second.data.edges.some((e) => e.fromNode === INBOX_ID && e.toNode === DONE_ID), "arrow Inbox → Done");
+	assert.equal(done.x, inbox.x + inbox.width + 160, "Done one map gap to the right of the Inbox");
+	assert.equal(done.y + done.height / 2, inbox.y + inbox.height / 2, "centred on the Inbox");
+	const third = syncDesk(second.data, [note("a.md", 0, 1), note("b.md")], { ...opts, onComplete: "move", growZones: true });
+	assert.equal(third.changed, false, "second run changes nothing");
+});
+
+test("zone map: desks with zones placed by hand are left alone until linked", () => {
+	const data: CanvasData = {
+		nodes: [
+			{ id: INBOX_ID, type: "group", label: "Inbox", x: 0, y: 0, width: 920, height: 480 },
+			{ id: "z", type: "group", label: "Today", x: 3000, y: 2000, width: 920, height: 480 },
+		],
+		edges: [],
+	};
+	assert.equal(zonesOrbitInbox(data), false);
+	const r = syncDesk(data, [], { ...opts, growZones: true });
+	assert.equal(r.data.nodes.find((x) => x.id === "z")!.x, 3000, "not moved");
+	const linked = linkZonesTo(data, INBOX_ID)!;
+	assert.ok(zonesOrbitInbox(linked));
+	const arranged = syncDesk(linked, [], { ...opts, growZones: true });
+	const z = arranged.data.nodes.find((x) => x.id === "z")!;
+	assert.equal(z.x, 920 + 160, "now beside the Inbox");
+	assert.equal(syncDesk(arranged.data, [], { ...opts, growZones: true }).changed, false, "second run changes nothing");
+	const added = addMapZone(arranged.data, INBOX_ID, "child", opts, { label: "Later" })!;
+	const later = added.data.nodes.find((x) => x.id === added.zone.id)!;
+	assert.ok(later.x + later.width <= 0, "the next zone balances on the left");
 });

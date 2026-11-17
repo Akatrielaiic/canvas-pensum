@@ -11,6 +11,7 @@ import {
 	type CanvasData,
 	type CanvasNode,
 	type Layout,
+	arrangeZoneMaps,
 	centreInside,
 	clone,
 	groupsBySize,
@@ -19,9 +20,10 @@ import {
 	subtrees,
 	tidyZones,
 	zoneOf,
+	zoneParents,
 } from "./zone-engine.ts";
 
-export { type Layout, addZone, moveToZone, placeIn, tidyZones } from "./zone-engine.ts";
+export { type Layout, addMapZone, addZone, linkZonesTo, moveToZone, placeIn, tidyZones } from "./zone-engine.ts";
 
 // "st-" dates from the plugin's first name (Spatial Tasks). Kept so existing desks keep working.
 export const MANAGED_PREFIX = "st-";
@@ -55,6 +57,17 @@ export interface SyncOptions extends Layout {
 	/** Whether a path still exists in the vault. Cards of deleted notes are removed. */
 	exists?: (path: string) => boolean;
 	newId?: () => string;
+}
+
+/**
+ * Whether the zones orbit the Inbox: it already has an arrow to a zone, or it is the only zone
+ * (a new Pensatorium). New zones are then joined to it. Desks with zones placed by hand are
+ * left alone until "Arrange zones around Inbox".
+ */
+export function zonesOrbitInbox(data: CanvasData): boolean {
+	if (!data.nodes.some((n) => n.id === INBOX_ID && n.type === "group")) return false;
+	if ([...zoneParents(data).values()].includes(INBOX_ID)) return true;
+	return !data.nodes.some((n) => n.type === "group" && n.id !== INBOX_ID);
 }
 
 export interface SyncResult {
@@ -98,7 +111,9 @@ export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions
 			height: opts.cardHeight + opts.gap * 2,
 		};
 		if (color) group.color = color;
+		const orbit = id !== INBOX_ID && zonesOrbitInbox(data);
 		data.nodes.unshift(group); // groups first, so they render behind the cards
+		if (orbit) data.edges.push({ id: newId(), fromNode: INBOX_ID, toNode: id, fromSide: "right", toSide: "left" });
 		return group;
 	};
 	const inbox = () => ensureGroup(INBOX_ID, opts.inboxLabel, "below");
@@ -161,6 +176,8 @@ export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions
 			if (now === last) break;
 			last = now;
 		}
+	} else {
+		arrangeZoneMaps(data, opts);
 	}
 
 	// 5. Colours: done > overdue/today > zone colour. A colour the user picked is left alone.

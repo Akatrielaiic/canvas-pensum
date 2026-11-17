@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.0
+
+- **Zone map.** Zones joined to the Inbox by arrows sit around it, on both sides, stacked and evenly spaced, and keep that order as they grow and shrink: when one fills up, the others make room; when it empties, they close the gap. Drag a zone above or below another, or to the other side of the Inbox, to reorder it.
+- With a zone selected, **Shift+Tab** adds a zone beside it and **Shift+Enter** one below it, joined by an arrow, with the name open for typing.
+- **Arrange zones around Inbox** (command) joins every zone, Done included, to the Inbox. On a new Pensatorium this happens by itself: new zones are joined to the Inbox as they are created. Existing desks don't change until you run the command.
+
 ## 0.10.1
 
 - **Add task to a note** on the Pensatorium zooms to the note's card, as *Zoom to selection* does, before placing the cursor on the new task. Before, it only scrolled the card into view.

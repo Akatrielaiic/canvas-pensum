@@ -25,7 +25,7 @@ import { insertAtTop, insertUnderHeading, notePath } from "./capture.ts";
 import { type HelpRow, commandKeys, keyText, watchCanvasHelp } from "./help.ts";
 import { scanVault } from "./scanner.ts";
 import { DEFAULT_SETTINGS, type CanvasPensumSettings, CanvasPensumSettingTab } from "./settings.ts";
-import { DONE_ID, INBOX_ID, type Layout, type SyncResult, addZone, moveToZone, syncDesk } from "./sync.ts";
+import { DONE_ID, INBOX_ID, type Layout, type SyncResult, addMapZone, addZone, linkZonesTo, moveToZone, syncDesk, zonesOrbitInbox } from "./sync.ts";
 import { TASKS_CACHE_EVENT, getTasksPlugin } from "./tasks-plugin.ts";
 import { computeZones } from "./zones.ts";
 
@@ -39,6 +39,8 @@ interface LiveCanvas {
 	isDragging?: boolean;
 	zoomToBbox?(box: { minX: number; minY: number; maxX: number; maxY: number }): void;
 	panIntoView?(box: { minX: number; minY: number; maxX: number; maxY: number }): void;
+	selectOnly?(node: LiveNode): void;
+	wrapperEl?: HTMLElement;
 }
 
 /** A small temple with a tick: the Pensatorium as a place. Drawn on a 24-unit grid, edge to edge like Obsidian's own icons, scaled to its 100. */
@@ -60,6 +62,7 @@ function guideText(addTask: string, moveToZone: string): string {
 		"",
 		"- **Inbox**: new cards arrive there. Drag them wherever you like.",
 		`- **Zones**: named groups, like *Today* or *Waiting*. Select cards and use *Move to zone…*${key(moveToZone)}; type a new name to create a zone. A zone wraps its cards and gives them its colour.`,
+		"- **Zone map**: zones joined to the Inbox by arrows sit around it, evenly spaced, and make room for each other as they grow. Select a zone and press Shift+Tab for a zone beside it, Shift+Enter for one below it.",
 		"- **Done**: when a note has no open tasks left, its card turns green and moves there. Delete cards from Done freely: the notes stay.",
 		`- **New task**: *Add task to a note*${key(addTask)}, or the button among the canvas controls. Pick a note and type.`,
 		"- **Arrows**: cards joined by arrows travel together.",
@@ -77,6 +80,9 @@ interface LiveNode {
 	child?: { editor?: Editor; text?: string } | null;
 	moveAndResize?(rect: { x: number; y: number; width: number; height: number }): void;
 	setColor?(color: string): void;
+	/** Groups: open the label for typing. */
+	focusLabel?(): void;
+	blur?(): void;
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -150,6 +156,7 @@ export default class CanvasPensumPlugin extends Plugin {
 		});
 		this.addCommand({ id: "add-guide", name: "Add the guide card", callback: () => this.addGuide() });
 		this.addCommand({ id: "new-zone", name: "New zone", callback: () => this.newZone() });
+		this.addCommand({ id: "arrange-zones", name: "Arrange zones around Inbox", callback: () => this.arrangeZones() });
 		this.addCommand({
 			id: "move-to-zone",
 			name: "Move selected cards to zone",
@@ -186,6 +193,11 @@ export default class CanvasPensumPlugin extends Plugin {
 				if (canvas === this.liveCanvas(this.deskPath())) addMenuItem(menu, this.selectedIds());
 			}),
 		);
+
+		// Shift+Tab / Shift+Enter on a selected zone of the Pensatorium: a new zone in the map.
+		const listenKeys = (win: Window) => this.registerDomEvent(win, "keydown", (evt) => this.onZoneKey(evt), { capture: true });
+		listenKeys(window);
+		this.registerEvent(this.app.workspace.on("window-open", (_w, win) => listenKeys(win)));
 
 		const autoSync = debounce(() => this.settings.autoSync && this.sync(false), 2000, true);
 		const watchHelp = (win: Window) => this.register(watchCanvasHelp(win.document, "pensum-help", "Canvas Pensum", () => this.helpRows()));
@@ -328,6 +340,8 @@ export default class CanvasPensumPlugin extends Plugin {
 				label: "Move the selected cards to a zone (a new name creates it)",
 				keys: this.keysFor("move-to-zone", ["Mod", "Shift", "M"]),
 			});
+			rows.push({ label: "New zone beside the selected zone", keys: [["Shift", "Tab"]] });
+			rows.push({ label: "New zone below the selected zone", keys: [["Shift", "Enter"]] });
 		}
 		return rows;
 	}
@@ -364,7 +378,7 @@ export default class CanvasPensumPlugin extends Plugin {
 			if (!desk) return;
 			let created: CanvasNode | undefined;
 			await this.editDesk(desk, (data) => {
-				const result = addZone(data, zone, this.layout(), { anchorId: INBOX_ID });
+				const result = this.addZoneTo(data, zone);
 				created = result.zone;
 				return result.data;
 			});
@@ -373,6 +387,75 @@ export default class CanvasPensumPlugin extends Plugin {
 				this.liveCanvas(desk.path)?.zoomToBbox?.({ minX: x, minY: y, maxX: x + width, maxY: y + height });
 			}
 			new Notice(`Zone “${zone.label}” added.`);
+		} catch (e) {
+			console.error("Canvas Pensum", e);
+			new Notice("Canvas Pensum: could not add the zone (see console).");
+		}
+	}
+
+	/** A new zone: joined to the Inbox when the zones orbit it, else beside it. */
+	private addZoneTo(data: CanvasData, zone: { label: string; color?: string }): { data: CanvasData; zone: CanvasNode } {
+		const layout = this.layout();
+		const mapped = zonesOrbitInbox(data) ? addMapZone(data, INBOX_ID, "child", layout, zone) : null;
+		return mapped ?? addZone(data, zone, layout, { anchorId: INBOX_ID });
+	}
+
+	/** Joins every zone to the Inbox with an arrow, so they all sit around it. */
+	private async arrangeZones() {
+		const desk = await this.getDesk(true);
+		if (!desk) return;
+		let linked = false;
+		await this.editDesk(desk, (data) => {
+			const next = linkZonesTo(data, INBOX_ID);
+			linked = !!next;
+			return next;
+		});
+		await this.sync(false);
+		new Notice(linked ? "Zones arranged around the Inbox." : "The zones already sit around the Inbox.");
+	}
+
+	/**
+	 * On the Pensatorium, with one zone selected: Shift+Tab adds a zone beside it (its child in the
+	 * map), Shift+Enter one below it (its sibling). The new zone is selected with its name open for typing.
+	 */
+	private onZoneKey(evt: KeyboardEvent) {
+		if (evt.defaultPrevented || evt.isComposing || !evt.shiftKey || evt.ctrlKey || evt.metaKey || evt.altKey) return;
+		if (evt.key !== "Tab" && evt.key !== "Enter") return;
+		if (!this.deskIsActive()) return;
+		const live = this.liveCanvas(this.deskPath());
+		const selection = live?.selection;
+		if (!live || selection?.size !== 1) return;
+		const [picked] = selection;
+		const from = live.getData().nodes.find((n) => n.id === picked.id);
+		if (from?.type !== "group") return;
+		const target = evt.target as HTMLElement | null;
+		if (target?.closest("input, textarea, [contenteditable='true']")) return;
+		const doc = target?.ownerDocument ?? activeDocument;
+		if (doc.querySelector(".modal-container, .suggestion-container, .menu")) return;
+		evt.preventDefault();
+		evt.stopPropagation();
+		void this.addMapZoneFrom(from.id, evt.key === "Tab" ? "child" : "sibling");
+	}
+
+	private async addMapZoneFrom(fromId: string, kind: "child" | "sibling") {
+		try {
+			const desk = await this.getDesk(false);
+			if (!desk) return;
+			// A card left in edit mode (Esc keeps it so) would hold the change back: close it.
+			for (const n of this.liveCanvas(desk.path)?.nodes?.values() ?? []) if (n.isEditing) n.blur?.();
+			let created: string | undefined;
+			await this.editDesk(desk, (data) => {
+				const result = addMapZone(data, fromId, kind, this.layout());
+				created = result?.zone.id;
+				return result?.data ?? null;
+			});
+			const live = this.liveCanvas(desk.path);
+			const node = created ? live?.nodes?.get(created) : undefined;
+			if (!live || !node) return;
+			const box = node.getBBox?.();
+			if (box) live.panIntoView?.(box);
+			live.selectOnly?.(node);
+			node.focusLabel?.();
 		} catch (e) {
 			console.error("Canvas Pensum", e);
 			new Notice("Canvas Pensum: could not add the zone (see console).");
@@ -391,7 +474,7 @@ export default class CanvasPensumPlugin extends Plugin {
 				if (!desk) return;
 				await this.editDesk(desk, (data) => {
 					if (typeof pick !== "string") return moveToZone(data, ids, pick.id, this.layout());
-					const created = addZone(data, { label: pick }, this.layout(), { anchorId: INBOX_ID });
+					const created = this.addZoneTo(data, { label: pick });
 					return moveToZone(created.data, ids, created.zone.id, this.layout()) ?? created.data;
 				});
 				await this.sync(false); // zone colour, zone property
