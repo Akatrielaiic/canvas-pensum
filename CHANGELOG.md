@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.1
+
+- **Add task to a note** on the Pensatorium zooms to the note's card, as *Zoom to selection* does, before placing the cursor on the new task. Before, it only scrolled the card into view.
+
 ## 0.10.0
 
 - **Keys moved to the canvas.** Cmd/Ctrl+Shift+A (add a task) and Cmd/Ctrl+Shift+M (move to zone) are no longer default global hotkeys, which Obsidian asks plugins not to set. They now live on the canvas views: A works on any canvas, M on the Pensatorium, and a setting turns them off.

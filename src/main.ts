@@ -620,8 +620,8 @@ export default class CanvasPensumPlugin extends Plugin {
 	 * False if it can't be done in a few seconds.
 	 *
 	 * A card only has its note loaded while it is on screen, and it reloads the note a moment
-	 * after the file changes; entering edit mode before that would show the old text. So: bring
-	 * the card into view, wait until it has the new line, start editing, then place the cursor.
+	 * after the file changes; entering edit mode before that would show the old text. So: zoom
+	 * to the card, wait until it has the new line, start editing, then place the cursor.
 	 */
 	private async writeInCard(path: string): Promise<boolean> {
 		const emptyTask = /^- \[ \][ \t]*$/;
@@ -632,7 +632,8 @@ export default class CanvasPensumPlugin extends Plugin {
 			if (!live || !node?.startEditing) continue; // the card is still being added
 			if (!shown) {
 				const box = node.getBBox?.();
-				if (box) live.panIntoView?.(box);
+				// Like the canvas's own "Zoom to selection": the card fills the view (never past 100%).
+				if (box) live.zoomToBbox ? live.zoomToBbox(box) : live.panIntoView?.(box);
 				shown = true;
 				continue;
 			}
