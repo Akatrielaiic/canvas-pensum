@@ -252,15 +252,18 @@ function separate(units: Unit[], pad: number, pinned: Set<string>): void {
  * too, unless they already sit in a zone of their own. Cards joined by arrows move as one piece.
  * A zone wraps its contents, growing and shrinking with them; zones that end up overlapping
  * are pushed apart with everything in them.
+ *
+ * `stay`: where each card was last time (card id -> zone id, as returned). A card stays in that
+ * zone while its centre is still inside it, even if another zone was dropped over it.
+ * Returns where each card is now.
  */
-export function tidyZones(data: CanvasData, layout: Layout, pinned: string[] = []): void {
+export function tidyZones(data: CanvasData, layout: Layout, pinned: string[] = [], stay?: Map<string, string>): Map<string, string> {
 	const pad = layout.gap / 2;
 	const pins = new Set(pinned);
 	const groups = groupsBySize(data);
 	const cards = data.nodes.filter((n) => n.type !== "group");
-	const home = homes(data, groups);
-
-	const parent = enclosing(groups);
+	const parent = enclosing(data, groups);
+	const home = homes(data, groups, parent, stay);
 
 	const linked = new Map<string, string[]>();
 	for (const e of data.edges) {
@@ -313,8 +316,8 @@ export function tidyZones(data: CanvasData, layout: Layout, pinned: string[] = [
 		contents.set(zone, inside);
 	}
 	// Zone maps take their shape, then each map moves as one piece among everything else.
-	arrange(data, layout, contents, parent);
-	const mapOf = mapRoots(data, parent);
+	arrange(data, layout, contents);
+	const mapOf = mapRoots(data);
 	const top: Unit[] = [];
 	const merged = new Map<string, Unit>();
 	for (const unit of unitsIn(undefined)) {
@@ -329,14 +332,23 @@ export function tidyZones(data: CanvasData, layout: Layout, pinned: string[] = [
 		}
 	}
 	separate(top, pad, pins);
+	return new Map([...home].map(([card, zone]) => [card.id, zone.id]));
 }
 
-/** Which zone each card belongs to: the innermost one around its centre, else the zone of the card its arrows come from. */
-function homes(data: CanvasData, groups: CanvasNode[]): Map<CanvasNode, CanvasNode> {
+/**
+ * Which zone each card belongs to: the zone it was in last time (`stay`) while its centre is still
+ * inside it, else the innermost zone around its centre, else the zone of the card its arrows come from.
+ */
+function homes(data: CanvasData, groups: CanvasNode[], parent: Map<CanvasNode, CanvasNode | undefined>, stay?: Map<string, string>): Map<CanvasNode, CanvasNode> {
+	const byId = new Map(groups.map((g) => [g.id, g]));
 	const home = new Map<CanvasNode, CanvasNode>();
 	for (const card of data.nodes) {
 		if (card.type === "group") continue;
-		const zone = zoneOf(card, groups);
+		const before = byId.get(stay?.get(card.id) ?? "");
+		// The zone it was in, unless it was dropped into a zone inside that one.
+		const inner = zoneOf(card, groups);
+		const keep = before && centreInside(card, before) && (!inner || !within(inner, before, parent));
+		const zone = keep ? before : inner;
 		if (zone) home.set(card, zone);
 	}
 	const subtree = subtrees(data);
@@ -349,17 +361,41 @@ function homes(data: CanvasData, groups: CanvasNode[]): Map<CanvasNode, CanvasNo
 	return home;
 }
 
-/** The zone each zone sits in (undefined at the top level). */
-function enclosing(groups: CanvasNode[]): Map<CanvasNode, CanvasNode | undefined> {
+/** Whether `inner` sits inside `outer`, at any depth. */
+function within(inner: CanvasNode, outer: CanvasNode, parent: Map<CanvasNode, CanvasNode | undefined>): boolean {
+	for (let at = parent.get(inner); at; at = parent.get(at)) if (at === outer) return true;
+	return false;
+}
+
+/** Ids of the zones joined to another zone by an arrow: the zones of zone maps. */
+function mapped(data: CanvasData): Set<string> {
+	const groups = new Set(data.nodes.filter((n) => n.type === "group").map((n) => n.id));
+	const ids = new Set<string>();
+	for (const e of data.edges) {
+		if (e.fromNode === e.toNode || !groups.has(e.fromNode) || !groups.has(e.toNode)) continue;
+		ids.add(e.fromNode).add(e.toNode);
+	}
+	return ids;
+}
+
+/**
+ * The zone each zone sits in (undefined at the top level). A zone of a zone map is always at the
+ * top level, even when dropped over another zone, and never holds another map zone.
+ */
+function enclosing(data: CanvasData, groups: CanvasNode[]): Map<CanvasNode, CanvasNode | undefined> {
+	const inMap = mapped(data);
 	const parent = new Map<CanvasNode, CanvasNode | undefined>();
-	groups.forEach((g, i) => parent.set(g, zoneOf(g, groups.slice(i + 1).filter((o) => area(o) > area(g)))));
+	groups.forEach((g, i) => {
+		const outer = inMap.has(g.id) ? [] : groups.slice(i + 1).filter((o) => area(o) > area(g));
+		parent.set(g, zoneOf(g, outer));
+	});
 	return parent;
 }
 
 /** Everything that travels with each zone: its cards and the zones inside it, with theirs. */
-function contentsOf(data: CanvasData, groups: CanvasNode[], parent: Map<CanvasNode, CanvasNode | undefined>): Map<CanvasNode, CanvasNode[]> {
+function contentsOf(home: Map<CanvasNode, CanvasNode>, groups: CanvasNode[], parent: Map<CanvasNode, CanvasNode | undefined>): Map<CanvasNode, CanvasNode[]> {
 	const contents = new Map<CanvasNode, CanvasNode[]>(groups.map((g) => [g, []]));
-	for (const [card, zone] of homes(data, groups)) contents.get(zone)?.push(card);
+	for (const [card, zone] of home) contents.get(zone)?.push(card);
 	// Smallest first, so an inner zone is complete before it joins the one around it.
 	for (const g of groups) {
 		const outer = parent.get(g);
@@ -369,32 +405,50 @@ function contentsOf(data: CanvasData, groups: CanvasNode[], parent: Map<CanvasNo
 }
 
 // ---------- Zone maps ----------
+//
+// A zone map is a tree of zones joined by arrows. The arrows hold its shape: an arrow leaving its
+// zone on the left puts the child on the left, and siblings come in the order of their arrows in
+// the file. Nothing depends on where the zones happen to be, so a zone dragged out of place goes
+// back; Alt+arrow keys (moveMapZone) change the order and the side.
+
+/** One arrow of a zone map: the edge, and the parent and child zone ids. */
+interface MapArrow {
+	edge: CanvasEdge;
+	from: string;
+	to: string;
+}
 
 /**
- * The parent of each zone in a zone map, by id: the zone the oldest arrow into it comes from.
- * Only top-level zones take part; an arrow that would close a loop is ignored.
+ * The arrows that make zone maps, in file order: for each zone, the oldest arrow coming into it
+ * from another zone. An arrow that would close a loop is ignored.
  */
-export function zoneParents(data: CanvasData, parent?: Map<CanvasNode, CanvasNode | undefined>): Map<string, string> {
-	const groups = groupsBySize(data);
-	const outer = parent ?? enclosing(groups);
-	const top = new Set(groups.filter((g) => !outer.get(g)).map((g) => g.id));
+function mapArrows(data: CanvasData): MapArrow[] {
+	const groups = new Set(data.nodes.filter((n) => n.type === "group").map((n) => n.id));
 	const up = new Map<string, string>();
+	const arrows: MapArrow[] = [];
 	const rootOf = (id: string) => {
 		let at = id;
 		for (let next = up.get(at); next; next = up.get(at)) at = next;
 		return at;
 	};
-	for (const e of data.edges) {
-		if (!top.has(e.fromNode) || !top.has(e.toNode) || e.fromNode === e.toNode || up.has(e.toNode)) continue;
-		if (rootOf(e.fromNode) === e.toNode) continue; // would close a loop
-		up.set(e.toNode, e.fromNode);
+	for (const edge of data.edges) {
+		const { fromNode: from, toNode: to } = edge;
+		if (from === to || !groups.has(from) || !groups.has(to) || up.has(to)) continue;
+		if (rootOf(from) === to) continue; // would close a loop
+		up.set(to, from);
+		arrows.push({ edge, from, to });
 	}
-	return up;
+	return arrows;
+}
+
+/** The parent of each zone in a zone map, by id. */
+export function zoneParents(data: CanvasData): Map<string, string> {
+	return new Map(mapArrows(data).map((a) => [a.to, a.from]));
 }
 
 /** Root zone of the map each mapped zone belongs to, by id. Zones outside any map are left out. */
-function mapRoots(data: CanvasData, parent?: Map<CanvasNode, CanvasNode | undefined>): Map<string, string> {
-	const up = zoneParents(data, parent);
+function mapRoots(data: CanvasData): Map<string, string> {
+	const up = zoneParents(data);
 	const roots = new Map<string, string>();
 	for (const id of up.keys()) {
 		let at = id;
@@ -411,29 +465,40 @@ export const mapGaps = (layout: Layout) => ({ across: layout.gap * 4, along: lay
 const centreX = (n: CanvasNode) => n.x + n.width / 2;
 const centreY = (n: CanvasNode) => n.y + n.height / 2;
 
+/** The side an arrow puts its child on: where it leaves its zone, else where the child is now. */
+function sideOf(arrow: MapArrow, byId: Map<string, CanvasNode>): 1 | -1 {
+	if (arrow.edge.fromSide === "left") return -1;
+	if (arrow.edge.fromSide === "right") return 1;
+	const from = byId.get(arrow.from);
+	const to = byId.get(arrow.to);
+	return from && to && centreX(to) < centreX(from) ? -1 : 1;
+}
+
 /**
- * Lays out every zone map: the root stays where it is, its children go to its right or left (the
- * side they are on now), each level in a column, stacked in their current top-to-bottom order and
- * centred on their parent. Every zone takes its contents along. In place.
+ * Lays out every zone map: the root stays where it is; its children go to the side their arrows
+ * leave it from, deeper zones keep their parent's side. Each level is a column, siblings stacked
+ * in the order of their arrows and centred on their parent. Every zone takes its contents along.
  */
-function arrange(data: CanvasData, layout: Layout, contents: Map<CanvasNode, CanvasNode[]>, parent: Map<CanvasNode, CanvasNode | undefined>): void {
-	const up = zoneParents(data, parent);
-	if (!up.size) return;
+function arrange(data: CanvasData, layout: Layout, contents: Map<CanvasNode, CanvasNode[]>): void {
+	const arrows = mapArrows(data);
+	if (!arrows.length) return;
 	const byId = new Map(data.nodes.map((n) => [n.id, n]));
-	const kids = new Map<CanvasNode, CanvasNode[]>();
-	for (const [child, from] of up) {
-		const c = byId.get(child);
-		const p = byId.get(from);
-		if (c && p) kids.set(p, [...(kids.get(p) ?? []), c]);
+	const kids = new Map<CanvasNode, { node: CanvasNode; side: 1 | -1 }[]>();
+	const hasParent = new Set<string>();
+	for (const a of arrows) {
+		const c = byId.get(a.to);
+		const p = byId.get(a.from);
+		if (!c || !p) continue;
+		hasParent.add(c.id);
+		kids.set(p, [...(kids.get(p) ?? []), { node: c, side: sideOf(a, byId) }]);
 	}
-	const order = (list: CanvasNode[]) => [...list].sort((a, b) => centreY(a) - centreY(b) || (a.id < b.id ? -1 : 1));
 	const { across, along } = mapGaps(layout);
 	const band = new Map<CanvasNode, number>();
 	const bandOf = (n: CanvasNode): number => {
 		const known = band.get(n);
 		if (known !== undefined) return known;
 		const list = kids.get(n) ?? [];
-		const stack = list.reduce((sum, k) => sum + bandOf(k), 0) + along * Math.max(0, list.length - 1);
+		const stack = list.reduce((sum, k) => sum + bandOf(k.node), 0) + along * Math.max(0, list.length - 1);
 		const size = Math.max(n.height, stack);
 		band.set(n, size);
 		return size;
@@ -454,32 +519,37 @@ function arrange(data: CanvasData, layout: Layout, contents: Map<CanvasNode, Can
 		for (const k of list) {
 			const size = bandOf(k);
 			moveTo(k, dir > 0 ? p.x + p.width + across : p.x - across - k.width, top + size / 2 - k.height / 2);
-			place(k, order(kids.get(k) ?? []), dir);
+			place(k, (kids.get(k) ?? []).map((c) => c.node), dir);
 			top += size + along;
 		}
 	};
-	for (const root of [...kids.keys()].filter((n) => !up.has(n.id))) {
-		const list = order(kids.get(root) ?? []);
-		place(root, list.filter((k) => centreX(k) >= centreX(root)), 1);
-		place(root, list.filter((k) => centreX(k) < centreX(root)), -1);
+	for (const root of [...kids.keys()].filter((n) => !hasParent.has(n.id))) {
+		const list = kids.get(root) ?? [];
+		place(root, list.filter((k) => k.side > 0).map((k) => k.node), 1);
+		place(root, list.filter((k) => k.side < 0).map((k) => k.node), -1);
 	}
 }
 
 /**
  * Lays out the zone maps on their own, without wrapping zones around their cards or pushing
  * anything else apart. In place. For canvases where zones don't follow their contents.
+ * `stay` and the result: where each card is, as for tidyZones.
  */
-export function arrangeZoneMaps(data: CanvasData, layout: Layout): void {
+export function arrangeZoneMaps(data: CanvasData, layout: Layout, stay?: Map<string, string>): Map<string, string> {
 	const groups = groupsBySize(data);
-	const parent = enclosing(groups);
-	arrange(data, layout, contentsOf(data, groups, parent), parent);
+	const parent = enclosing(data, groups);
+	const home = homes(data, groups, parent, stay);
+	arrange(data, layout, contentsOf(home, groups, parent));
+	return new Map([...home].map(([card, zone]) => [card.id, zone.id]));
 }
 
+const sides = (dir: 1 | -1) => (dir > 0 ? { fromSide: "right", toSide: "left" } : { fromSide: "left", toSide: "right" });
+
 /**
- * Adds an empty zone to a zone map, joined by an arrow: a child of `fromId`, or its sibling (a
- * sibling of a root is a child of it). A root's new child goes on the side with less in it;
- * deeper zones keep their parent's side. The map is laid out again. Null if `fromId` is not a
- * top-level zone.
+ * Adds an empty zone to a zone map, joined by an arrow: a child of `fromId` (beside it), or its
+ * sibling (just below it; a sibling of a root is a child of it). A root's new child goes on the
+ * side with less in it; deeper zones keep their parent's side. The map is laid out again.
+ * Null if `fromId` is not a zone.
  */
 export function addMapZone(
 	input: CanvasData,
@@ -490,28 +560,28 @@ export function addMapZone(
 ): { data: CanvasData; zone: CanvasNode } | null {
 	const data = clone(input);
 	const newId = options.newId ?? randomId;
-	const groups = groupsBySize(data);
-	const parent = enclosing(groups);
-	const from = groups.find((g) => g.id === fromId);
-	if (!from || parent.get(from)) return null;
-	const up = zoneParents(data, parent);
 	const byId = new Map(data.nodes.map((n) => [n.id, n]));
-	const target = kind === "sibling" ? (byId.get(up.get(from.id) ?? "") ?? from) : from;
-	const kidsOf = (p: CanvasNode) =>
-		[...up].filter(([, f]) => f === p.id).map(([c]) => byId.get(c)).filter((n): n is CanvasNode => !!n);
-	const sideOf = (n: CanvasNode, of: CanvasNode): 1 | -1 => (centreX(n) >= centreX(of) ? 1 : -1);
+	const from = byId.get(fromId);
+	if (from?.type !== "group") return null;
+	const arrows = mapArrows(data);
+	const into = arrows.find((a) => a.to === from.id);
+	const target = kind === "sibling" && into ? (byId.get(into.from) as CanvasNode) : from;
+	const above = arrows.find((a) => a.to === target.id);
+	const own = arrows.filter((a) => a.from === target.id);
 
-	// Which side: a sibling takes `from`'s; under a root, the lighter side; deeper, the parent's.
-	const grand = byId.get(up.get(target.id) ?? "");
 	let dir: 1 | -1;
-	if (target !== from) dir = sideOf(from, target);
-	else if (grand) dir = sideOf(target, grand);
-	else {
-		const weight = (side: 1 | -1) => kidsOf(target).filter((k) => sideOf(k, target) === side).reduce((sum, k) => sum + k.height, 0);
-		dir = weight(-1) < weight(1) ? -1 : 1;
+	let after: CanvasEdge | undefined; // the new arrow goes right after this one
+	if (target !== from && into) {
+		dir = above ? sideOf(above, byId) : sideOf(into, byId);
+		after = into.edge;
+	} else {
+		if (above) dir = sideOf(above, byId);
+		else {
+			const weight = (side: 1 | -1) => own.filter((a) => sideOf(a, byId) === side).reduce((sum, a) => sum + (byId.get(a.to)?.height ?? 0), 0);
+			dir = weight(-1) < weight(1) ? -1 : 1;
+		}
+		after = [...own].reverse().find((a) => (above ? true : sideOf(a, byId) === dir))?.edge;
 	}
-	// Where it starts decides its place among its siblings: just below `from`, or below them all.
-	const below = target !== from ? from : kidsOf(target).filter((k) => sideOf(k, target) === dir).sort((a, b) => centreY(b) - centreY(a))[0];
 	const size = emptyZoneSize(layout);
 	const { across } = mapGaps(layout);
 	const zone: CanvasNode = {
@@ -519,43 +589,74 @@ export function addMapZone(
 		type: "group",
 		label: options.label ?? "",
 		x: dir > 0 ? target.x + target.width + across : target.x - across - size.width,
-		y: below ? below.y + below.height + 1 : centreY(target) - size.height / 2,
+		y: centreY(target) - size.height / 2,
 		...size,
 	};
 	if (options.color) zone.color = options.color;
 	data.nodes.unshift(zone); // groups first, so they render behind the cards
-	data.edges.push({
-		id: newId(),
-		fromNode: target.id,
-		toNode: zone.id,
-		fromSide: dir > 0 ? "right" : "left",
-		toSide: dir > 0 ? "left" : "right",
-	});
+	const edge: CanvasEdge = { id: newId(), fromNode: target.id, toNode: zone.id, ...sides(dir) };
+	const at = after ? data.edges.indexOf(after) + 1 : data.edges.length;
+	data.edges.splice(at, 0, edge);
 	arrangeZoneMaps(data, layout);
 	return { data, zone };
 }
 
 /**
+ * Moves a zone within its map: "up" / "down" before or after the sibling on its side, "left" /
+ * "right" to the other side of the root (for the root's own children; it goes last there).
+ * Changes the order and sides of the arrows, then lays the map out again. Null if nothing moves.
+ */
+export function moveMapZone(input: CanvasData, zoneId: string, where: "up" | "down" | "left" | "right", layout: Layout): CanvasData | null {
+	const data = clone(input);
+	const byId = new Map(data.nodes.map((n) => [n.id, n]));
+	const arrows = mapArrows(data);
+	const mine = arrows.find((a) => a.to === zoneId);
+	if (!mine) return null;
+	const side = sideOf(mine, byId);
+	const isRootChild = !arrows.some((a) => a.to === mine.from);
+	if (where === "left" || where === "right") {
+		const want = where === "left" ? -1 : 1;
+		if (!isRootChild || want === side) return null;
+		Object.assign(mine.edge, sides(want));
+		const own = arrows.filter((a) => a.from === mine.from && a !== mine && sideOf(a, byId) === want);
+		const last = own[own.length - 1]?.edge;
+		data.edges.splice(data.edges.indexOf(mine.edge), 1);
+		data.edges.splice(last ? data.edges.indexOf(last) + 1 : data.edges.length, 0, mine.edge);
+	} else {
+		const row = arrows.filter((a) => a.from === mine.from && (!isRootChild || sideOf(a, byId) === side));
+		const other = row[row.indexOf(mine) + (where === "up" ? -1 : 1)];
+		if (!other) return null;
+		const i = data.edges.indexOf(mine.edge);
+		const j = data.edges.indexOf(other.edge);
+		[data.edges[i], data.edges[j]] = [data.edges[j], data.edges[i]];
+	}
+	arrangeZoneMaps(data, layout);
+	return data;
+}
+
+/**
  * Joins `rootId` with an arrow to every top-level zone in no map yet, and to the roots of other
- * maps, so they all form one map around it. Null if there was nothing to join.
+ * maps, so they all form one map around it, each on the side it is now, top to bottom.
+ * Null if there was nothing to join.
  */
 export function linkZonesTo(input: CanvasData, rootId: string, options: { newId?: () => string } = {}): CanvasData | null {
 	const data = clone(input);
 	const newId = options.newId ?? randomId;
 	const groups = groupsBySize(data);
-	const parent = enclosing(groups);
+	const parent = enclosing(data, groups);
 	const root = groups.find((g) => g.id === rootId);
 	if (!root || parent.get(root)) return null;
-	const roots = mapRoots(data, parent);
+	const roots = mapRoots(data);
 	const mine = roots.get(root.id) ?? root.id;
-	let changed = false;
-	for (const g of groups) {
-		if (g === root || parent.get(g)) continue;
-		const r = roots.get(g.id);
-		if (r === mine || (r && r !== g.id)) continue; // already in this map, or below another root
-		const right = centreX(g) >= centreX(root);
-		data.edges.push({ id: newId(), fromNode: root.id, toNode: g.id, fromSide: right ? "right" : "left", toSide: right ? "left" : "right" });
-		changed = true;
+	const join = groups
+		.filter((g) => g !== root && !parent.get(g))
+		.filter((g) => {
+			const r = roots.get(g.id);
+			return r !== mine && (!r || r === g.id); // not in this map, not below another root
+		})
+		.sort((a, b) => centreY(a) - centreY(b) || (a.id < b.id ? -1 : 1));
+	for (const g of join) {
+		data.edges.push({ id: newId(), fromNode: root.id, toNode: g.id, ...sides(centreX(g) >= centreX(root) ? 1 : -1) });
 	}
-	return changed ? data : null;
+	return join.length ? data : null;
 }

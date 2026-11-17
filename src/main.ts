@@ -25,7 +25,7 @@ import { insertAtTop, insertUnderHeading, notePath } from "./capture.ts";
 import { type HelpRow, commandKeys, keyText, watchCanvasHelp } from "./help.ts";
 import { scanVault } from "./scanner.ts";
 import { DEFAULT_SETTINGS, type CanvasPensumSettings, CanvasPensumSettingTab } from "./settings.ts";
-import { DONE_ID, INBOX_ID, type Layout, type SyncResult, addMapZone, addZone, linkZonesTo, moveToZone, syncDesk, zonesOrbitInbox } from "./sync.ts";
+import { DONE_ID, INBOX_ID, type Layout, type SyncResult, addMapZone, addZone, linkZonesTo, moveMapZone, moveToZone, syncDesk, zonesOrbitInbox } from "./sync.ts";
 import { TASKS_CACHE_EVENT, getTasksPlugin } from "./tasks-plugin.ts";
 import { computeZones } from "./zones.ts";
 
@@ -62,7 +62,7 @@ function guideText(addTask: string, moveToZone: string): string {
 		"",
 		"- **Inbox**: new cards arrive there. Drag them wherever you like.",
 		`- **Zones**: named groups, like *Today* or *Waiting*. Select cards and use *Move to zone…*${key(moveToZone)}; type a new name to create a zone. A zone wraps its cards and gives them its colour.`,
-		"- **Zone map**: zones joined to the Inbox by arrows sit around it, evenly spaced, and make room for each other as they grow. Select a zone and press Shift+Tab for a zone beside it, Shift+Enter for one below it.",
+		"- **Zone map**: zones joined to the Inbox by arrows sit around it, evenly spaced, and make room for each other as they grow. Select a zone and press Shift+Tab for a zone beside it, Shift+Enter for one below it; Alt+arrows move it up, down or to the other side.",
 		"- **Done**: when a note has no open tasks left, its card turns green and moves there. Delete cards from Done freely: the notes stay.",
 		`- **New task**: *Add task to a note*${key(addTask)}, or the button among the canvas controls. Pick a note and type.`,
 		"- **Arrows**: cards joined by arrows travel together.",
@@ -80,8 +80,11 @@ interface LiveNode {
 	child?: { editor?: Editor; text?: string } | null;
 	moveAndResize?(rect: { x: number; y: number; width: number; height: number }): void;
 	setColor?(color: string): void;
-	/** Groups: open the label for typing. */
+	/** Groups: open the label for typing (once the node is attached and rendered). */
 	focusLabel?(): void;
+	labelEl?: HTMLElement;
+	attach?(): void;
+	render?(): void;
 	blur?(): void;
 }
 
@@ -134,6 +137,8 @@ export default class CanvasPensumPlugin extends Plugin {
 	settings: CanvasPensumSettings = DEFAULT_SETTINGS;
 	/** Notes with a task being written in their card: kept on the desk even while the task is still empty. */
 	private capturing = new Map<string, number>();
+	/** Which zone each card was in at the last sync, so a zone dropped over another doesn't take its cards. */
+	private homes?: Map<string, string>;
 	/** Re-run the sync shortly (the desk changed, or an update had to wait). */
 	private syncSoon = debounce(() => this.sync(false), 1000, true);
 
@@ -342,6 +347,8 @@ export default class CanvasPensumPlugin extends Plugin {
 			});
 			rows.push({ label: "New zone beside the selected zone", keys: [["Shift", "Tab"]] });
 			rows.push({ label: "New zone below the selected zone", keys: [["Shift", "Enter"]] });
+			rows.push({ label: "Move the selected zone before or after its neighbour", keys: [["Alt", "↑ ↓"]] });
+			rows.push({ label: "Move the selected zone to the other side of the Inbox", keys: [["Alt", "← →"]] });
 		}
 		return rows;
 	}
@@ -416,11 +423,16 @@ export default class CanvasPensumPlugin extends Plugin {
 
 	/**
 	 * On the Pensatorium, with one zone selected: Shift+Tab adds a zone beside it (its child in the
-	 * map), Shift+Enter one below it (its sibling). The new zone is selected with its name open for typing.
+	 * map), Shift+Enter one below it (its sibling); the new zone is selected with its name open for
+	 * typing. Alt+Up / Alt+Down move the zone before or after its sibling, Alt+Left / Alt+Right to
+	 * the other side of the Inbox.
 	 */
 	private onZoneKey(evt: KeyboardEvent) {
-		if (evt.defaultPrevented || evt.isComposing || !evt.shiftKey || evt.ctrlKey || evt.metaKey || evt.altKey) return;
-		if (evt.key !== "Tab" && evt.key !== "Enter") return;
+		if (evt.defaultPrevented || evt.isComposing || evt.ctrlKey || evt.metaKey) return;
+		const arrow = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" }[evt.key] as "up" | "down" | "left" | "right" | undefined;
+		const add = evt.shiftKey && !evt.altKey && (evt.key === "Tab" || evt.key === "Enter");
+		const move = evt.altKey && !evt.shiftKey && !!arrow;
+		if (!add && !move) return;
 		if (!this.deskIsActive()) return;
 		const live = this.liveCanvas(this.deskPath());
 		const selection = live?.selection;
@@ -432,6 +444,13 @@ export default class CanvasPensumPlugin extends Plugin {
 		if (target?.closest("input, textarea, [contenteditable='true']")) return;
 		const doc = target?.ownerDocument ?? activeDocument;
 		if (doc.querySelector(".modal-container, .suggestion-container, .menu")) return;
+		if (move && arrow) {
+			const next = moveMapZone(live.getData(), from.id, arrow, this.layout());
+			evt.preventDefault();
+			evt.stopPropagation();
+			if (next && !applyLive(live, next)) this.syncSoon();
+			return;
+		}
 		evt.preventDefault();
 		evt.stopPropagation();
 		void this.addMapZoneFrom(from.id, evt.key === "Tab" ? "child" : "sibling");
@@ -455,7 +474,23 @@ export default class CanvasPensumPlugin extends Plugin {
 			const box = node.getBBox?.();
 			if (box) live.panIntoView?.(box);
 			live.selectOnly?.(node);
-			node.focusLabel?.();
+			// As Canvas does for a group it creates: attach and render it, then open its label.
+			const focus = (zone: LiveNode) => {
+				zone.attach?.();
+				zone.render?.();
+				zone.focusLabel?.();
+			};
+			focus(node);
+			// Not open after all (a sync redrew the canvas a moment later): try once more.
+			const id = created ?? "";
+			window.setTimeout(() => {
+				const again = live.nodes?.get(id);
+				const label = again?.labelEl;
+				if (again && label && label.ownerDocument.activeElement !== label) {
+					live.selectOnly?.(again);
+					focus(again);
+				}
+			}, 150);
 		} catch (e) {
 			console.error("Canvas Pensum", e);
 			new Notice("Canvas Pensum: could not add the zone (see console).");
@@ -473,8 +508,17 @@ export default class CanvasPensumPlugin extends Plugin {
 				const desk = await this.getDesk(false);
 				if (!desk) return;
 				await this.editDesk(desk, (data) => {
-					if (typeof pick !== "string") return moveToZone(data, ids, pick.id, this.layout());
+					// The moved cards belong to that zone now, whatever it overlaps until it is tidied.
+					const keep = (zoneId: string) => {
+						this.homes ??= new Map();
+						for (const id of ids) this.homes.set(id, zoneId);
+					};
+					if (typeof pick !== "string") {
+						keep(pick.id);
+						return moveToZone(data, ids, pick.id, this.layout());
+					}
 					const created = this.addZoneTo(data, { label: pick });
+					keep(created.zone.id);
 					return moveToZone(created.data, ids, created.zone.id, this.layout()) ?? created.data;
 				});
 				await this.sync(false); // zone colour, zone property
@@ -509,6 +553,7 @@ export default class CanvasPensumPlugin extends Plugin {
 				doneLabel: "Done",
 				growZones: this.settings.growZones,
 				pinned: this.selectedIds(),
+				stay: this.homes,
 				inheritZoneColor: this.settings.inheritZoneColor,
 				onComplete: this.settings.onComplete,
 				doneColor: "4",
@@ -522,6 +567,7 @@ export default class CanvasPensumPlugin extends Plugin {
 			return result.changed ? result.data : null;
 		});
 		if (!result) return desk;
+		if (result.homes) this.homes = result.homes;
 
 		if (this.settings.writeZones) await this.writeZones(result.data);
 		if (manual) {

@@ -23,7 +23,7 @@ import {
 	zoneParents,
 } from "./zone-engine.ts";
 
-export { type Layout, addMapZone, addZone, linkZonesTo, moveToZone, placeIn, tidyZones } from "./zone-engine.ts";
+export { type Layout, addMapZone, addZone, linkZonesTo, moveMapZone, moveToZone, placeIn, tidyZones } from "./zone-engine.ts";
 
 // "st-" dates from the plugin's first name (Spatial Tasks). Kept so existing desks keep working.
 export const MANAGED_PREFIX = "st-";
@@ -54,6 +54,8 @@ export interface SyncOptions extends Layout {
 	growZones?: boolean;
 	/** Ids of cards that should stay put when overlaps are resolved (the ones the user is working on). */
 	pinned?: string[];
+	/** Where each card was at the last sync (card id -> zone id): it stays there while it is still inside. */
+	stay?: Map<string, string>;
 	/** Whether a path still exists in the vault. Cards of deleted notes are removed. */
 	exists?: (path: string) => boolean;
 	newId?: () => string;
@@ -77,6 +79,8 @@ export interface SyncResult {
 	completed: string[];
 	reopened: string[];
 	removed: string[];
+	/** Where each card is now (card id -> zone id), to pass back as `stay` next time. */
+	homes?: Map<string, string>;
 }
 
 export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions): SyncResult {
@@ -91,7 +95,14 @@ export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions
 			file: string;
 		})[];
 
-	const place = (node: CanvasNode, group: CanvasNode) => placeBlock(data, [node], group, opts);
+	// Where cards were, and where this sync puts them: a card placed in a zone belongs to it even
+	// if a neighbouring zone overlaps the spot until the zones are tidied.
+	const stay = new Map(opts.stay);
+	const put = (block: CanvasNode[], group: CanvasNode) => {
+		placeBlock(data, block, group, opts);
+		for (const n of block) stay.set(n.id, group.id);
+	};
+	const place = (node: CanvasNode, group: CanvasNode) => put([node], group);
 
 	const ensureGroup = (id: string, label: string, side: "below" | "right", color?: string): CanvasNode => {
 		const existing = data.nodes.find((n) => n.id === id && n.type === "group");
@@ -159,11 +170,11 @@ export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions
 		for (const node of ourCards()) {
 			if (open.has(node.file)) {
 				if (!doneZone || !centreInside(node, doneZone)) continue;
-				placeBlock(data, subtree(node, (n) => ours(n) && !open.has(n.file as string)), inbox(), opts);
+				put(subtree(node, (n) => ours(n) && !open.has(n.file as string)), inbox());
 			} else {
 				doneZone ??= ensureGroup(DONE_ID, opts.doneLabel ?? "Done", "right", opts.doneColor);
 				if (centreInside(node, doneZone)) continue;
-				placeBlock(data, subtree(node, (n) => ours(n) && open.has(n.file as string)), doneZone, opts);
+				put(subtree(node, (n) => ours(n) && open.has(n.file as string)), doneZone);
 			}
 		}
 	}
@@ -171,13 +182,13 @@ export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions
 	// 4. Keep zones tidy: no overlapping cards, every zone wraps what belongs to it.
 	if (opts.growZones) {
 		for (let pass = 0, last = ""; pass < 5; pass++) {
-			tidyZones(data, opts, opts.pinned);
+			result.homes = tidyZones(data, opts, opts.pinned, result.homes ?? stay);
 			const now = JSON.stringify(data.nodes);
 			if (now === last) break;
 			last = now;
 		}
 	} else {
-		arrangeZoneMaps(data, opts);
+		result.homes = arrangeZoneMaps(data, opts, stay);
 	}
 
 	// 5. Colours: done > overdue/today > zone colour. A colour the user picked is left alone.

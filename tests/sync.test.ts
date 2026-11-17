@@ -443,3 +443,38 @@ test("zone map: desks with zones placed by hand are left alone until linked", ()
 	const later = added.data.nodes.find((x) => x.id === added.zone.id)!;
 	assert.ok(later.x + later.width <= 0, "the next zone balances on the left");
 });
+
+test("zone map: a card stays in its zone when another zone is dropped over it", () => {
+	const base: CanvasData = {
+		nodes: [
+			{ id: INBOX_ID, type: "group", label: "Inbox", x: 0, y: 0, width: 920, height: 480 },
+			{ id: "a", type: "group", label: "A", x: 3000, y: 0, width: 920, height: 480 },
+			{ id: "b", type: "group", label: "B", x: 3000, y: 3000, width: 920, height: 480 },
+			{ id: "st-a", type: "file", file: "a.md", x: 3040, y: 40, width: 400, height: 400 },
+			{ id: "st-b", type: "file", file: "b.md", x: 3040, y: 3040, width: 400, height: 400 },
+		],
+		edges: [],
+	};
+	const notes = [note("a.md"), note("b.md")];
+	let r = syncDesk(linkZonesTo(base, INBOX_ID)!, notes, { ...opts, growZones: true });
+	r = syncDesk(r.data, notes, { ...opts, growZones: true, stay: r.homes });
+	assert.equal(r.changed, false);
+	// Drag A (with its card) right over B.
+	const data = structuredClone(r.data);
+	const A = data.nodes.find((x) => x.id === "a")!;
+	const B = data.nodes.find((x) => x.id === "b")!;
+	const [dx, dy] = [B.x - A.x, B.y - A.y];
+	for (const id of ["a", "st-a"]) {
+		const n = data.nodes.find((x) => x.id === id)!;
+		n.x += dx;
+		n.y += dy;
+	}
+	const after = syncDesk(data, notes, { ...opts, growZones: true, stay: r.homes });
+	assert.equal(after.homes!.get("st-a"), "a");
+	assert.equal(after.homes!.get("st-b"), "b");
+	assert.deepEqual(
+		after.data.nodes.filter((x) => x.type === "group").map((g) => [g.id, g.x, g.y]),
+		r.data.nodes.filter((x) => x.type === "group").map((g) => [g.id, g.x, g.y]),
+		"A goes back to its place",
+	);
+});

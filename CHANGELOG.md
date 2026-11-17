@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.0
+
+- **The zone map keeps its order.** The order and side of each zone are kept in its arrow, so a zone dragged out of place goes back instead of overlapping another one and taking its cards. To reorder, select the zone and press **Alt+Up / Alt+Down** (before or after its neighbour) or **Alt+Left / Alt+Right** (to the other side of the Inbox).
+- Cards stay in their zone while another zone is dropped over it.
+- Fixed: the name of a zone added with Shift+Tab / Shift+Enter didn't open for typing.
+
 ## 0.11.0
 
 - **Zone map.** Zones joined to the Inbox by arrows sit around it, on both sides, stacked and evenly spaced, and keep that order as they grow and shrink: when one fills up, the others make room; when it empties, they close the gap. Drag a zone above or below another, or to the other side of the Inbox, to reorder it.
