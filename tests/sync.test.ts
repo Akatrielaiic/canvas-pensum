@@ -498,3 +498,22 @@ test("a card in no zone is pushed out of a zone that grows over it, and a dragge
 	r = syncDesk(r.data, notes, { ...grow, stay: r.homes });
 	assert.equal(r.homes!.get("memo")?.zone, INBOX_ID);
 });
+
+test("a card dragged into a zone takes the cards below it along", () => {
+	const grow = { ...opts, growZones: true };
+	let r = syncDesk(empty(), [note("a.md")], grow);
+	const inbox = () => r.data.nodes.find((x) => x.id === INBOX_ID)!;
+	r.data.nodes.push(
+		{ id: "p", type: "text", x: inbox().x, y: inbox().y + 3000, width: 300, height: 100 },
+		{ id: "k", type: "text", x: inbox().x + 400, y: inbox().y + 3000, width: 300, height: 100 },
+	);
+	r.data.edges.push({ id: "pk", fromNode: "p", toNode: "k" });
+	r = syncDesk(r.data, [note("a.md")], { ...grow, stay: r.homes });
+	assert.equal(r.homes!.get("k")?.zone, undefined);
+	const p = r.data.nodes.find((x) => x.id === "p")!;
+	Object.assign(p, { x: inbox().x + 20, y: inbox().y + 20 }); // only the parent is dragged
+	r = syncDesk(r.data, [note("a.md")], { ...grow, stay: r.homes });
+	assert.equal(r.homes!.get("p")?.zone, INBOX_ID);
+	assert.equal(r.homes!.get("k")?.zone, INBOX_ID, "its child came along");
+	assert.equal(syncDesk(r.data, [note("a.md")], { ...grow, stay: r.homes }).changed, false);
+});

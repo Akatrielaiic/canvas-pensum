@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.1
+
+- Fixed: a card dragged into a zone left the cards below it outside, and the zone pushed them away. They now go with it, into the zone and out again (a card living in another zone stays there).
+
 ## 0.15.0
 
 - **Zones no longer take cards that aren't theirs.** A card changes zone only when you drag it in or out, or use *Move to zone…*. A zone that grows, or a new zone, pushes cards in no zone out of the way instead of taking them; cards in a zone stay in it.

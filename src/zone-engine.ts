@@ -385,7 +385,7 @@ export function tidyZones(data: CanvasData, layout: Layout, pinned: string[] = [
 /**
  * Which zone each card belongs to. A card remembered in `stay` keeps its zone (or no zone) unless
  * it was moved by hand; then, the zone it was in while its centre is still inside it, else the
- * innermost zone around its centre. A card not remembered yet: under another card (once an
+ * innermost zone around its centre, and the cards below it that shared its zone go along. A card not remembered yet: under another card (once an
  * earlier tidy is remembered), that card's zone; else the innermost zone around it, else the zone
  * of the card its arrows come from.
  */
@@ -403,6 +403,7 @@ function homes(
 	const known = [...(stay?.values() ?? [])].some((h) => h.x !== undefined);
 	const home = new Map<CanvasNode, CanvasNode>();
 	const decided = new Set<CanvasNode>();
+	const byHandFrom = new Map<CanvasNode, string | undefined>(); // moved by hand, and the zone it was in
 	for (const card of data.nodes) {
 		if (card.type === "group") continue;
 		const was = stay?.get(card.id);
@@ -417,6 +418,7 @@ function homes(
 			// Moved by hand: the zone it was in, unless it was dropped into a zone inside that one.
 			const keep = before && centreInside(card, before) && (!inner || !within(inner, before, parent));
 			zone = byHand || gone ? (keep ? before : inner) : before;
+			if (byHand) byHandFrom.set(card, was.zone);
 			decided.add(card);
 		} else if (known && under.has(card.id)) {
 			continue; // new, under another card: takes its zone below
@@ -429,6 +431,18 @@ function homes(
 		}
 	}
 	const subtree = subtrees(data);
+	// A card moved by hand takes its branches along: the cards below it that were in its zone (or in
+	// none with it) go where it went. Branches living in another zone stay there.
+	const branch = (card: CanvasNode) => subtree(card, (n) => stay?.get(n.id)?.zone !== byHandFrom.get(card)).slice(1);
+	const carried = new Set([...byHandFrom.keys()].flatMap(branch));
+	for (const card of byHandFrom.keys()) {
+		if (carried.has(card)) continue; // its branch is carried by a card above it
+		const zone = home.get(card);
+		for (const below of branch(card)) {
+			if (zone) home.set(below, zone);
+			else home.delete(below);
+		}
+	}
 	const fixed = new Set(decided);
 	for (const card of home.keys()) {
 		for (const below of subtree(card, (n) => fixed.has(n)).slice(1)) {
