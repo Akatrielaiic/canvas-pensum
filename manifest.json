@@ -1,7 +1,7 @@
 {
 	"id": "canvas-pensum",
 	"name": "Canvas Pensum",
-	"version": "0.13.0",
+	"version": "0.14.0",
 	"minAppVersion": "1.5.0",
 	"description": "A spatial task manager: every note with open tasks lands on the Pensatorium, an infinite Canvas desk you arrange by hand.",
 	"author": "Akatrielaiic",

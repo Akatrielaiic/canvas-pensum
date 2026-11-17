@@ -25,7 +25,7 @@ import { insertAtTop, insertUnderHeading, notePath } from "./capture.ts";
 import { type HelpRow, commandKeys, keyText, watchCanvasHelp } from "./help.ts";
 import { scanVault } from "./scanner.ts";
 import { DEFAULT_SETTINGS, type CanvasPensumSettings, CanvasPensumSettingTab } from "./settings.ts";
-import { DONE_ID, INBOX_ID, type Layout, type SyncResult, addMapZone, addZone, linkZonesTo, moveMapZone, moveToZone, syncDesk, zonesOrbitInbox } from "./sync.ts";
+import { DONE_ID, INBOX_ID, type Layout, type SyncResult, addMapZone, addZone, balanceZoneMaps, linkZonesTo, moveMapZone, moveToZone, syncDesk, zonesOrbitInbox } from "./sync.ts";
 import { TASKS_CACHE_EVENT, getTasksPlugin } from "./tasks-plugin.ts";
 import { computeZones } from "./zones.ts";
 
@@ -416,7 +416,10 @@ export default class CanvasPensumPlugin extends Plugin {
 		return mapped ?? addZone(data, zone, layout, { anchorId: INBOX_ID });
 	}
 
-	/** Joins every zone to the Inbox with an arrow, so they all sit around it. */
+	/**
+	 * Joins every zone to the Inbox with an arrow, so they all sit around it, and evens out the two
+	 * sides (from five zones on), as Canvas Arbor's Tidy does with a mind map.
+	 */
 	private async arrangeZones() {
 		const desk = await this.getDesk(true);
 		if (!desk) return;
@@ -424,10 +427,13 @@ export default class CanvasPensumPlugin extends Plugin {
 		await this.editDesk(desk, (data) => {
 			const next = linkZonesTo(data, INBOX_ID);
 			linked = !!next;
-			return next;
+			const out = next ?? structuredClone(data);
+			const before = JSON.stringify(out);
+			balanceZoneMaps(out, this.layout());
+			return next || JSON.stringify(out) !== before ? out : null;
 		});
 		await this.sync(false);
-		new Notice(linked ? "Zones arranged around the Inbox." : "The zones already sit around the Inbox.");
+		new Notice(linked ? "Zones arranged around the Inbox." : "The zones around the Inbox are in order.");
 	}
 
 	/**

@@ -13,6 +13,7 @@ import {
 	type Layout,
 	arrangeZoneMaps,
 	centreInside,
+	joinZoneMap,
 	clone,
 	groupsBySize,
 	placeBlock,
@@ -23,7 +24,7 @@ import {
 	zoneParents,
 } from "./zone-engine.ts";
 
-export { type Layout, addMapZone, addZone, linkZonesTo, moveMapZone, moveToZone, placeIn, tidyZones } from "./zone-engine.ts";
+export { type Layout, addMapZone, addZone, balanceZoneMaps, linkZonesTo, moveMapZone, moveToZone, placeIn, tidyZones } from "./zone-engine.ts";
 
 // "st-" dates from the plugin's first name (Spatial Tasks). Kept so existing desks keep working.
 export const MANAGED_PREFIX = "st-";
@@ -124,7 +125,8 @@ export function syncDesk(input: CanvasData, notes: TaskNote[], opts: SyncOptions
 		if (color) group.color = color;
 		const orbit = id !== INBOX_ID && zonesOrbitInbox(data);
 		data.nodes.unshift(group); // groups first, so they render behind the cards
-		if (orbit) data.edges.push({ id: newId(), fromNode: INBOX_ID, toNode: id, fromSide: "right", toSide: "left" });
+		// Joined to the Inbox as a new zone would be: the lighter side, or balanced from five zones on.
+		if (orbit) joinZoneMap(data, INBOX_ID, id, opts, { newId });
 		return group;
 	};
 	const inbox = () => ensureGroup(INBOX_ID, opts.inboxLabel, "below");

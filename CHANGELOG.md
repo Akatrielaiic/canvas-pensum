@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.0
+
+- **New zones are placed and balanced exactly as Canvas Arbor places mind map nodes.** A new zone round the Inbox goes on the side that takes less room (counting the zones below each one), the next one clockwise when added with Shift+Enter. From five zones round the Inbox on, the two sides are evened out whenever one is added (Done included), and Alt+Up / Alt+Down trade places with the next zone round.
+- *Arrange zones around Inbox* also evens out the two sides, like Tidy in Canvas Arbor.
+
 ## 0.13.0
 
 - **The zone map goes clockwise round the Inbox**: on the right from top to bottom, on the left from bottom to top. Deeper zones go top to bottom, as in Canvas Arbor's mind maps. New zones follow it: Shift+Tab on the Inbox adds a zone at the end of the lighter side; Shift+Enter adds the next one (clockwise round the Inbox, so above it on the left; below it deeper down).
