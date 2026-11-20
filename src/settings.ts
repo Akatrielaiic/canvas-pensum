@@ -10,6 +10,8 @@ export interface CanvasPensumSettings {
 	autoSync: boolean;
 	onComplete: "mark" | "move" | "remove";
 	growZones: boolean;
+	/** Cards and zones glide to their new place instead of jumping. */
+	animate: boolean;
 	inheritZoneColor: boolean;
 	colorByDue: boolean;
 	canvasKeys: boolean;
@@ -30,6 +32,7 @@ export const DEFAULT_SETTINGS: CanvasPensumSettings = {
 	autoSync: true,
 	onComplete: "move",
 	growZones: true,
+	animate: true,
 	inheritZoneColor: true,
 	colorByDue: true,
 	canvasKeys: true,
@@ -214,6 +217,16 @@ export class CanvasPensumSettingTab extends PluginSettingTab {
 			.addToggle((t) =>
 				t.setValue(s.growZones).onChange(async (v) => {
 					s.growZones = v;
+					await save();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Animate moves")
+			.setDesc("Cards and zones glide to their new place when the Pensatorium is synced or its zones make room, instead of jumping there. Off when your system asks for reduced motion.")
+			.addToggle((t) =>
+				t.setValue(s.animate).onChange(async (v) => {
+					s.animate = v;
 					await save();
 				}),
 			);

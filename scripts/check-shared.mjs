@@ -5,7 +5,7 @@
 // This file is one of the shared ones.
 import { existsSync, readFileSync } from "node:fs";
 
-const SHARED = ["src/zone-engine.ts", "src/help.ts", "scripts/check-shared.mjs"];
+const SHARED = ["src/zone-engine.ts", "src/help.ts", "src/motion.ts", "scripts/check-shared.mjs"];
 const OWNER = "Akatrielaiic";
 
 const self = JSON.parse(readFileSync("manifest.json", "utf8")).id;

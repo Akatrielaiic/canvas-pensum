@@ -45,7 +45,7 @@ There is no `styles.css`; if one is added, attach it in `release.yml` too.
 
 Pure files have no Obsidian imports and are covered by `tests/`. Put new logic there when possible: it is the only part that can be verified without Obsidian.
 
-**Shared files.** `src/zone-engine.ts`, `src/help.ts`, `scripts/check-shared.mjs` exist identically in both repos. Change both copies together and run `npm run check:shared`.
+**Shared files.** `src/zone-engine.ts`, `src/help.ts`, `src/motion.ts`, `scripts/check-shared.mjs` exist identically in both repos. Change both copies together and run `npm run check:shared`.
 
 ## Things that are easy to get wrong
 
@@ -65,3 +65,8 @@ Pure files have no Obsidian imports and are covered by `tests/`. Put new logic t
 Not yet done, in rough order of value: verify on iPad; record the GIFs listed in `docs/media/README.md` and uncomment their lines in the README; submit to the community directory (via community.obsidian.md with the maintainer's Obsidian account; he does this himself) after a period of real use.
 
 Ideas discussed and not started: open-task counter in zone labels; "Clear Done" command; distinct look for Inbox/Done (needs a `styles.css`); several Pensatoria, each with its own filter.
+
+## Gliding moves (0.16.0)
+
+`src/motion.ts` (shared with Arbor) animates moves: `applyLive` calls `glide(node, from, to)` for each card or zone that moved, and the card walks there over 180 ms through `moveAndResize`, so Canvas redraws arrows with it. **Halfway through a glide, positions are not real**, and the sync spots hand moves by position: read the live canvas only through `dataOf(live)`, which settles (finishes) any glide first. Pointerdown and keydown settle too. Off with the `animate` setting and with reduced motion. Setting the data with `setData` (the heavy path in `applyLive`) is not animated.
+

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.0
+
+- **Moves glide.** When the Pensatorium is synced, a card goes to Done, zones make room or move round the Inbox, cards and zones glide to their new place in about 0.2 s instead of jumping, with their arrows attached. Dragging is never animated. A new setting, *Animate moves* (on), turns it off; it is also off when your system asks for reduced motion. Same as Canvas Arbor 0.14.0.
+
 ## 0.15.1
 
 - Fixed: a card dragged into a zone left the cards below it outside, and the zone pushed them away. They now go with it, into the zone and out again (a card living in another zone stays there).

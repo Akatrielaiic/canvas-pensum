@@ -27,6 +27,7 @@ import { scanVault } from "./scanner.ts";
 import { DEFAULT_SETTINGS, type CanvasPensumSettings, CanvasPensumSettingTab } from "./settings.ts";
 import { DONE_ID, INBOX_ID, type Home, type Layout, type SyncResult, addMapZone, addZone, balanceZoneMaps, linkZonesTo, moveMapZone, moveToZone, subtrees, syncDesk, zonesOrbitInbox } from "./sync.ts";
 import { TASKS_CACHE_EVENT, getTasksPlugin } from "./tasks-plugin.ts";
+import { type GlideNode, glide, motionHooks, settle } from "./motion.ts";
 import { computeZones } from "./zones.ts";
 
 /** The parts of Obsidian's (undocumented) canvas view we rely on. Always feature-checked. */
@@ -90,6 +91,12 @@ interface LiveNode {
 	blur?(): void;
 }
 
+/** The canvas data, with any glide finished first: half-way through one, positions are not real yet. */
+function dataOf(live: LiveCanvas): CanvasData {
+	settle();
+	return live.getData();
+}
+
 const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
 /**
@@ -99,7 +106,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(r
  */
 function applyLive(live: LiveCanvas, next: CanvasData): boolean {
 	if (live.isDragging) return false;
-	const current = live.getData();
+	const current = dataOf(live);
 	const rest = ({ x, y, width, height, color, ...other }: CanvasNode) => JSON.stringify(other);
 	const nodes = live.nodes;
 	const light =
@@ -116,7 +123,8 @@ function applyLive(live: LiveCanvas, next: CanvasData): boolean {
 			const c = current.nodes[i];
 			const node = nodes.get(n.id) as LiveNode;
 			if (c.x !== n.x || c.y !== n.y || c.width !== n.width || c.height !== n.height) {
-				node.moveAndResize?.({ x: n.x, y: n.y, width: n.width, height: n.height });
+				// Glides when the setting allows it (motion.ts); otherwise a plain move.
+				glide(node as unknown as GlideNode, { x: c.x, y: c.y, width: c.width, height: c.height }, { x: n.x, y: n.y, width: n.width, height: n.height });
 			}
 			if (c.color !== n.color) node.setColor?.(n.color ?? "");
 		});
@@ -155,6 +163,8 @@ export default class CanvasPensumPlugin extends Plugin {
 	async onload() {
 		this.settings = { ...DEFAULT_SETTINGS, ...(await this.loadData()) };
 		this.addSettingTab(new CanvasPensumSettingTab(this.app, this));
+		const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+		motionHooks.enabled = (canvas) => this.settings.animate && !reduced?.matches && !!canvas.canvasEl?.isShown();
 
 		addIcon(PENSATORIUM_ICON, PENSATORIUM_SVG);
 		this.addRibbonIcon(PENSATORIUM_ICON, "Open Pensatorium", () => this.openDesk());
@@ -210,7 +220,11 @@ export default class CanvasPensumPlugin extends Plugin {
 		);
 
 		// Shift+Tab / Shift+Enter on a selected zone of the Pensatorium: a new zone in the map.
-		const listenKeys = (win: Window) => this.registerDomEvent(win, "keydown", (evt) => this.onZoneKey(evt), { capture: true });
+		// A key or a click while cards glide: finish the glide first, so nothing starts from half-way.
+		const listenKeys = (win: Window) => {
+			this.registerDomEvent(win, "pointerdown", () => settle(), { capture: true });
+			this.registerDomEvent(win, "keydown", (evt) => (settle(), this.onZoneKey(evt)), { capture: true });
+		};
 		listenKeys(window);
 		this.registerEvent(this.app.workspace.on("window-open", (_w, win) => listenKeys(win)));
 
@@ -366,7 +380,7 @@ export default class CanvasPensumPlugin extends Plugin {
 	private async editDesk(desk: TFile, edit: (data: CanvasData) => CanvasData | null): Promise<void> {
 		const live = this.liveCanvas(desk.path);
 		if (live) {
-			const next = edit(live.getData());
+			const next = edit(dataOf(live));
 			if (next && !applyLive(live, next)) this.syncSoon(); // busy: try again in a moment
 		} else {
 			await this.app.vault.process(desk, (raw) => {
@@ -452,14 +466,14 @@ export default class CanvasPensumPlugin extends Plugin {
 		const selection = live?.selection;
 		if (!live || selection?.size !== 1) return;
 		const [picked] = selection;
-		const from = live.getData().nodes.find((n) => n.id === picked.id);
+		const from = dataOf(live).nodes.find((n) => n.id === picked.id);
 		if (from?.type !== "group") return;
 		const target = evt.target as HTMLElement | null;
 		if (target?.closest("input, textarea, [contenteditable='true']")) return;
 		const doc = target?.ownerDocument ?? activeDocument;
 		if (doc.querySelector(".modal-container, .suggestion-container, .menu")) return;
 		if (move && arrow) {
-			const next = moveMapZone(live.getData(), from.id, arrow, this.layout());
+			const next = moveMapZone(dataOf(live), from.id, arrow, this.layout());
 			evt.preventDefault();
 			evt.stopPropagation();
 			if (next && !applyLive(live, next)) this.syncSoon();
@@ -514,8 +528,7 @@ export default class CanvasPensumPlugin extends Plugin {
 	private moveToZone(ids: string[]) {
 		const live = this.liveCanvas(this.deskPath());
 		if (!live || !ids.length) return;
-		const zones = live
-			.getData()
+		const zones = dataOf(live)
 			.nodes.filter((n) => n.type === "group" && n.id !== DONE_ID && typeof n.label === "string" && n.label.trim());
 		new ZonePicker(this.app, zones, async (pick) => {
 			try {
@@ -703,7 +716,7 @@ export default class CanvasPensumPlugin extends Plugin {
 		const live = this.liveCanvas(this.deskPath());
 		const ids = this.selectedIds();
 		if (!live || ids.length !== 1) return null;
-		const node = live.getData().nodes.find((n) => n.id === ids[0]);
+		const node = dataOf(live).nodes.find((n) => n.id === ids[0]);
 		const file = node?.type === "file" && node.file ? this.app.vault.getAbstractFileByPath(node.file) : null;
 		return file instanceof TFile && file.extension === "md" ? file : null;
 	}
